@@ -14,7 +14,7 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "AA0005000000000000000001"
+               BlueprintIdentifier = "BB0005000000000000000001"
                BuildableName = "GameMode.app"
                BlueprintName = "GameMode"
                ReferencedContainer = "container:GameMode.xcodeproj">
@@ -43,7 +43,7 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "AA0005000000000000000001"
+            BlueprintIdentifier = "BB0005000000000000000001"
             BuildableName = "GameMode.app"
             BlueprintName = "GameMode"
             ReferencedContainer = "container:GameMode.xcodeproj">
@@ -60,7 +60,7 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "AA0005000000000000000001"
+            BlueprintIdentifier = "BB0005000000000000000001"
             BuildableName = "GameMode.app"
             BlueprintName = "GameMode"
             ReferencedContainer = "container:GameMode.xcodeproj">

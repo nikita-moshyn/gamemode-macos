@@ -15,9 +15,27 @@ set -euo pipefail
 APP_NAME="GameMode"
 BUILD_DIR="build"
 SOURCES=(
-    "GameMode/GameModeApp.swift"
-    "GameMode/AppMonitor.swift"
-    "GameMode/SettingsManager.swift"
+    # Models
+    "GameMode/Models/GameModeConfig.swift"
+    "GameMode/Models/MonitoredApp.swift"
+    "GameMode/Models/ShortcutEntry.swift"
+    "GameMode/Models/SymbolicHotkeys.swift"
+    # Core
+    "GameMode/Core/ConfigStore.swift"
+    "GameMode/Core/StateJournal.swift"
+    "GameMode/Core/AppDetector.swift"
+    "GameMode/Core/AppMonitor.swift"
+    "GameMode/Core/SettingsManager.swift"
+    # Views
+    "GameMode/Views/SettingsWindow.swift"
+    "GameMode/Views/ShortcutsSettingsView.swift"
+    "GameMode/Views/AppsSettingsView.swift"
+    "GameMode/Views/AppPickerSheet.swift"
+    "GameMode/Views/MouseSettingsView.swift"
+    "GameMode/Views/SystemSettingsView.swift"
+    # App
+    "GameMode/App/GameModeApp.swift"
+    "GameMode/App/AppDelegate.swift"
 )
 
 # Detect architecture
