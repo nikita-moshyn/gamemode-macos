@@ -3,7 +3,7 @@
 //  GameMode
 //
 //  Created by Nikita Moshyn on 15/03/2026.
-//  Copyright © 2025 Nikita Moshyn. All rights reserved.
+//  Copyright © 2026 Nikita Moshyn. All rights reserved.
 //
 
 import AppKit
