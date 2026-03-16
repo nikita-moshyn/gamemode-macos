@@ -32,6 +32,8 @@ SOURCES=(
     "GameMode/Core/HotkeyManager.swift"
     # Views
     "GameMode/Views/SettingsWindow.swift"
+    "GameMode/Views/GeneralSettingsView.swift"
+    "GameMode/Views/AboutView.swift"
     "GameMode/Views/ShortcutsSettingsView.swift"
     "GameMode/Views/AppsSettingsView.swift"
     "GameMode/Views/AppPickerSheet.swift"

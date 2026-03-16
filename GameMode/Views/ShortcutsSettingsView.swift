@@ -12,72 +12,49 @@ struct ShortcutsSettingsView: View {
     @ObservedObject var configStore: ConfigStore
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+        Form {
+            Section("Function Keys") {
                 Toggle("Use F1, F2, etc. as standard function keys",
                        isOn: $configStore.config.functionKeysInGamingMode)
+            }
 
-                Divider()
-
-                Text("Shortcuts to disable in game mode")
-                    .font(.headline)
-
-                Text("Checked shortcuts will be disabled when gaming mode activates.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-
+            Section {
                 ForEach(groupedCategories, id: \.category) { group in
-                    Section {
+                    Section(group.category) {
                         ForEach(group.entries, id: \.id) { entry in
                             shortcutRow(entry)
                         }
-                    } header: {
-                        Text(group.category)
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                            .foregroundColor(.secondary)
-                            .padding(.top, 4)
                     }
                 }
-
+            } header: {
+                Text("Shortcuts to Disable")
+            } footer: {
                 HStack {
                     Button("Detect System Shortcuts") {
                         let detected = AppDetector.detectAvailableShortcuts()
                         configStore.mergeDetectedShortcuts(detected)
                     }
                     Text("Scans your system for available keyboard shortcuts")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 }
-                .padding(.top, 8)
+            }
 
-                Divider()
-
-                // MARK: - Gestures
-
-                Text("Gestures to disable in game mode")
-                    .font(.headline)
-
-                Text("Checked gestures will be disabled when gaming mode activates. Useful when playing with a trackpad.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-
+            Section {
                 ForEach(gestureCategories, id: \.category) { group in
-                    Section {
+                    Section(group.category) {
                         ForEach(group.entries, id: \.id) { entry in
                             gestureRow(entry)
                         }
-                    } header: {
-                        Text(group.category)
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                            .foregroundColor(.secondary)
-                            .padding(.top, 4)
                     }
                 }
+            } header: {
+                Text("Gestures to Disable")
+            } footer: {
+                Text("Checked gestures will be disabled when gaming mode activates. Useful when playing with a trackpad.")
+                    .foregroundStyle(.secondary)
             }
-            .padding()
         }
+        .formStyle(.grouped)
     }
 
     // MARK: - Shortcut Row

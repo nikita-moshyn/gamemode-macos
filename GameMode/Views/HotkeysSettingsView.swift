@@ -8,28 +8,26 @@
 
 import SwiftUI
 
-/// Settings tab for configuring system-wide keyboard shortcuts for GameMode actions.
 struct HotkeysSettingsView: View {
     @ObservedObject var configStore: ConfigStore
     var onHotkeysChanged: (() -> Void)?
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                // Accessibility status
-                if !configStore.isAccessibilityGranted {
+        Form {
+            if !configStore.isAccessibilityGranted {
+                Section {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack(spacing: 6) {
                             Image(systemName: "lock.shield")
-                                .foregroundColor(.red)
+                                .foregroundStyle(.red)
                                 .font(.title3)
-                            Text("Global Hotkeys — Disabled")
-                                .font(.headline)
+                            Text("Accessibility Permission Required")
+                                .fontWeight(.semibold)
                         }
 
-                        Text("GameMode needs Accessibility permission to capture keyboard shortcuts while other apps are in focus. Grant access so hotkeys work system-wide.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                        Text("GameMode needs Accessibility permission to capture keyboard shortcuts while other apps are in focus.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
 
                         HStack(spacing: 12) {
                             Button("Request Permission") {
@@ -42,29 +40,23 @@ struct HotkeysSettingsView: View {
                                 }
                             }
                         }
+                        .padding(.top, 4)
                     }
-                    .padding(10)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(Color.red.opacity(0.08))
-                    )
-                } else {
-                    Text("Global Hotkeys")
-                        .font(.headline)
-
-                    Text("These shortcuts work system-wide, even when GameMode is not focused.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
                 }
+            }
 
-                Divider()
-
+            Section {
                 ForEach(configStore.config.hotkeys.indices, id: \.self) { index in
                     hotkeyRow(index: index)
                 }
+            } header: {
+                Text("Global Hotkeys")
+            } footer: {
+                Text("These shortcuts work system-wide, even when GameMode is not focused.")
+                    .foregroundStyle(.secondary)
             }
-            .padding()
         }
+        .formStyle(.grouped)
     }
 
     // MARK: - Row
@@ -98,6 +90,5 @@ struct HotkeysSettingsView: View {
                 onChange: { onHotkeysChanged?() }
             )
         }
-        .padding(.vertical, 2)
     }
 }

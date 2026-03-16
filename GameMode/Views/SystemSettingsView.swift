@@ -13,42 +13,20 @@ struct SystemSettingsView: View {
     var onForceRestore: (() -> Void)?
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                // Accessibility Permission
-                Text("Accessibility Permission")
-                    .font(.headline)
-
+        Form {
+            Section("Accessibility Permission") {
                 HStack(spacing: 8) {
                     Circle()
                         .fill(configStore.isAccessibilityGranted ? Color.green : Color.red)
                         .frame(width: 8, height: 8)
                     Text(configStore.isAccessibilityGranted ? "Granted" : "Not Granted")
-                        .foregroundColor(configStore.isAccessibilityGranted ? .green : .red)
+                        .foregroundStyle(configStore.isAccessibilityGranted ? .green : .red)
                 }
 
                 if !configStore.isAccessibilityGranted {
-                    Text("Accessibility access is required for global hotkeys and gesture control. Without it, keyboard shortcuts will only work when the app is focused.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("How to enable:")
-                            .font(.caption)
-                            .bold()
-                        Text("1. Click \"Open System Settings\" below")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Text("2. Find GameMode in the list")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Text("3. Toggle the switch next to it")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Text("4. If not listed, click \"+\" and add GameMode.app")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
+                    Text("Accessibility access is required for global hotkeys and gesture control.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
 
                     HStack(spacing: 12) {
                         Button("Request Permission") {
@@ -63,68 +41,55 @@ struct SystemSettingsView: View {
                     }
                 } else {
                     Text("GameMode can monitor global hotkeys and control system gestures.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
                 }
+            }
 
-                Divider()
-
-                // Shutdown Protection
-                Text("Shutdown Protection")
-                    .font(.headline)
-
+            Section {
                 Toggle("Restore settings on shutdown / restart",
                        isOn: $configStore.config.system.restoreOnShutdown)
-
+            } header: {
+                Text("Shutdown Protection")
+            } footer: {
                 Text("Deactivates gaming mode before macOS shuts down, so your system starts clean.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
+            }
 
-                Divider()
-
-                // Crash Recovery
-                Text("Crash Recovery")
-                    .font(.headline)
-
+            Section {
                 Toggle("Auto-restore on launch",
                        isOn: $configStore.config.system.restoreOnLaunch)
+            } header: {
+                Text("Crash Recovery")
+            } footer: {
+                Text("If the app was killed while gaming mode was active, restore all settings on next launch.")
+                    .foregroundStyle(.secondary)
+            }
 
-                Text("If the app was killed or the Mac was force-rebooted while gaming mode was active, restore all settings on next launch.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-
-                Divider()
-
-                // State
-                Text("State")
-                    .font(.headline)
-
-                HStack {
-                    Text("Gaming mode:")
+            Section("State") {
+                LabeledContent("Gaming mode") {
                     Text(configStore.isGamingMode ? "Active" : (StateJournal.hasDirtyState ? "Active (stale)" : "Inactive"))
-                        .foregroundColor(configStore.isGamingMode ? .green : (StateJournal.hasDirtyState ? .orange : .secondary))
+                        .foregroundStyle(configStore.isGamingMode ? .green : (StateJournal.hasDirtyState ? .orange : .secondary))
                 }
 
-                HStack {
-                    Text("State file:")
+                LabeledContent("State file") {
                     Text("~/Library/Application Support/GameMode/state.json")
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
+            }
 
-                Divider()
-
-                Button("Force Restore All Settings") {
+            Section {
+                Button("Force Restore All Settings", role: .destructive) {
                     onForceRestore?()
                 }
-
-                Text("Emergency button: reads the state journal and restores every setting to pre-gaming values. Use if something feels stuck.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+            } footer: {
+                Text("Emergency button: reads the state journal and restores every setting to pre-gaming values.")
+                    .foregroundStyle(.secondary)
             }
-            .padding()
         }
+        .formStyle(.grouped)
     }
 }

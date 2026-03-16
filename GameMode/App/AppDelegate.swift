@@ -20,6 +20,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var appMonitor: AppMonitor!
     private var hotkeyManager = HotkeyManager()
     private var settingsWindow: NSWindow?
+    private var aboutWindow: NSWindow?
 
     private var isGamingMode: Bool {
         get { configStore.isGamingMode }
@@ -154,10 +155,31 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let settingsItem = NSMenuItem(
             title: "Settings...",
             action: #selector(openSettings),
-            keyEquivalent: ""
+            keyEquivalent: ","
         )
         settingsItem.target = self
+        settingsItem.keyEquivalentModifierMask = .command
         menu.addItem(settingsItem)
+
+        menu.addItem(.separator())
+
+        // About
+        let aboutItem = NSMenuItem(
+            title: "About GameMode",
+            action: #selector(openAbout),
+            keyEquivalent: ""
+        )
+        aboutItem.target = self
+        menu.addItem(aboutItem)
+
+        // Check for Updates
+        let updateItem = NSMenuItem(
+            title: "Check for Updates...",
+            action: #selector(checkForUpdates),
+            keyEquivalent: ""
+        )
+        updateItem.target = self
+        menu.addItem(updateItem)
 
         menu.addItem(.separator())
 
@@ -165,9 +187,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let quitItem = NSMenuItem(
             title: "Quit GameMode",
             action: #selector(quitApp),
-            keyEquivalent: ""
+            keyEquivalent: "q"
         )
         quitItem.target = self
+        quitItem.keyEquivalentModifierMask = .command
         menu.addItem(quitItem)
 
         self.statusItem.menu = menu
@@ -357,8 +380,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let window = NSWindow(contentViewController: hostingView)
         window.title = "GameMode Settings"
-        window.styleMask = [.titled, .closable]
-        window.setContentSize(NSSize(width: 540, height: 480))
+        window.styleMask = [.titled, .closable, .resizable]
+        window.setContentSize(NSSize(width: 700, height: 520))
+        window.minSize = NSSize(width: 620, height: 420)
         window.isReleasedWhenClosed = false
         window.center()
         window.makeKeyAndOrderFront(nil)
@@ -382,6 +406,32 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard let window = notification.object as? NSWindow, window === settingsWindow else { return }
         configStore.stopAccessibilityPolling()
         NotificationCenter.default.removeObserver(self, name: NSWindow.willCloseNotification, object: window)
+    }
+
+    @objc private func openAbout() {
+        if let window = aboutWindow, window.isVisible {
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let hostingView = NSHostingController(rootView: AboutView())
+        let window = NSWindow(contentViewController: hostingView)
+        window.title = "About GameMode"
+        window.styleMask = [.titled, .closable]
+        window.setContentSize(NSSize(width: 300, height: 340))
+        window.isReleasedWhenClosed = false
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+
+        self.aboutWindow = window
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @objc private func checkForUpdates() {
+        if let url = URL(string: "https://github.com/user/GameMode/releases") {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     @objc private func quitApp() {

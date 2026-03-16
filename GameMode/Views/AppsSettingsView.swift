@@ -13,31 +13,18 @@ struct AppsSettingsView: View {
     @State private var showingAddSheet = false
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                Text("Trigger Applications")
-                    .font(.headline)
-
-                Text("Gaming mode activates when any enabled app launches.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-
-                ForEach(groupedSources, id: \.title) { group in
-                    if !group.apps.isEmpty {
-                        Section {
-                            ForEach(group.apps) { app in
-                                appRow(app)
-                            }
-                        } header: {
-                            Text(group.title)
-                                .font(.subheadline)
-                                .fontWeight(.semibold)
-                                .foregroundColor(.secondary)
-                                .padding(.top, 4)
+        Form {
+            ForEach(groupedSources, id: \.title) { group in
+                if !group.apps.isEmpty {
+                    Section(group.title) {
+                        ForEach(group.apps) { app in
+                            appRow(app)
                         }
                     }
                 }
+            }
 
+            Section {
                 HStack(spacing: 12) {
                     Button("Add App") {
                         showingAddSheet = true
@@ -49,13 +36,13 @@ struct AppsSettingsView: View {
                             configStore.addApp(app)
                         }
                     }
-
-                    Spacer()
                 }
-                .padding(.top, 8)
+            } footer: {
+                Text("Gaming mode activates when any enabled app launches.")
+                    .foregroundStyle(.secondary)
             }
-            .padding()
         }
+        .formStyle(.grouped)
         .sheet(isPresented: $showingAddSheet) {
             AppPickerSheet(configStore: configStore, isPresented: $showingAddSheet)
         }
@@ -77,7 +64,7 @@ struct AppsSettingsView: View {
                     Text(app.name)
                     Text(app.bundleID)
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 }
             }
 
@@ -87,7 +74,7 @@ struct AppsSettingsView: View {
                     configStore.removeApp(id: app.id)
                 } label: {
                     Image(systemName: "trash")
-                        .foregroundColor(.red)
+                        .foregroundStyle(.red)
                 }
                 .buttonStyle(.borderless)
             }

@@ -30,6 +30,8 @@
 		BB0001000000000000000018 /* HotkeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0002000000000000000018 /* HotkeyManager.swift */; };
 		BB0001000000000000000019 /* ShortcutRecorderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0002000000000000000019 /* ShortcutRecorderView.swift */; };
 		BB000100000000000000001A /* HotkeysSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000200000000000000001A /* HotkeysSettingsView.swift */; };
+		BB000100000000000000001B /* GeneralSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000200000000000000001B /* GeneralSettingsView.swift */; };
+		BB000100000000000000001C /* AboutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000200000000000000001C /* AboutView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -59,6 +61,8 @@
 		BB0002000000000000000018 /* HotkeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyManager.swift; sourceTree = "<group>"; };
 		BB0002000000000000000019 /* ShortcutRecorderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutRecorderView.swift; sourceTree = "<group>"; };
 		BB000200000000000000001A /* HotkeysSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeysSettingsView.swift; sourceTree = "<group>"; };
+		BB000200000000000000001B /* GeneralSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeneralSettingsView.swift; sourceTree = "<group>"; };
+		BB000200000000000000001C /* AboutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -148,6 +152,8 @@
 				BB0002000000000000000011 /* SystemSettingsView.swift */,
 				BB0002000000000000000019 /* ShortcutRecorderView.swift */,
 				BB000200000000000000001A /* HotkeysSettingsView.swift */,
+				BB000200000000000000001B /* GeneralSettingsView.swift */,
+				BB000200000000000000001C /* AboutView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -227,6 +233,8 @@
 				BB0001000000000000000018 /* HotkeyManager.swift in Sources */,
 				BB0001000000000000000019 /* ShortcutRecorderView.swift in Sources */,
 				BB000100000000000000001A /* HotkeysSettingsView.swift in Sources */,
+				BB000100000000000000001B /* GeneralSettingsView.swift in Sources */,
+				BB000100000000000000001C /* AboutView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
