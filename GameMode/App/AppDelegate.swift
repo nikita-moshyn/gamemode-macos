@@ -7,6 +7,7 @@
 //
 
 import AppKit
+import Carbon
 import SwiftUI
 import UserNotifications
 
@@ -17,9 +18,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private let configStore = ConfigStore.shared
     private let settingsManager = SettingsManager()
     private var appMonitor: AppMonitor!
+    private var hotkeyManager = HotkeyManager()
     private var settingsWindow: NSWindow?
 
-    private var isGamingMode = false
+    private var isGamingMode: Bool {
+        get { configStore.isGamingMode }
+        set { configStore.isGamingMode = newValue }
+    }
 
     // MARK: - Lifecycle
 
@@ -57,6 +62,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             onDeactivate: { [weak self] in self?.deactivateGamingMode() }
         )
         appMonitor.checkRunningApps()
+
+        // Check Accessibility permission (needed for global hotkeys)
+        if !HotkeyManager.isAccessibilityGranted {
+            HotkeyManager.requestAccessibilityPermission()
+        }
+
+        // Register global hotkeys
+        registerHotkeys()
 
         // Register for shutdown/restart
         NSWorkspace.shared.notificationCenter.addObserver(
@@ -103,29 +116,35 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let gameModeItem = NSMenuItem(
             title: gameModeTitle,
             action: #selector(toggleGameMode),
-            keyEquivalent: "g"
+            keyEquivalent: ""
         )
         gameModeItem.target = self
-        gameModeItem.keyEquivalentModifierMask = .command
+        if let hotkey = configStore.config.hotkeys.first(where: { $0.id == "toggleGameMode" }),
+           hotkey.isEnabled, let kc = hotkey.keyCode,
+           let equiv = KeyCodeMap.menuKeyEquivalent(for: kc) {
+            gameModeItem.keyEquivalent = equiv
+            gameModeItem.keyEquivalentModifierMask = NSEvent.ModifierFlags(rawValue: hotkey.modifiers)
+                .intersection(.deviceIndependentFlagsMask)
+        }
         menu.addItem(gameModeItem)
 
         // Mouse toggle — only shown when mouse management is enabled
         if configStore.config.mouse.isEnabled {
-            let mouseTitle: String
-            if isGamingMode {
-                mouseTitle = configStore.config.mouse.isMouseBoostEnabled
-                    ? "Disable Mouse Boost" : "Enable Mouse Boost"
-            } else {
-                mouseTitle = configStore.config.mouse.isMouseBoostEnabled
-                    ? "Disable Mouse Boost" : "Enable Mouse Boost"
-            }
+            let mouseTitle = configStore.config.mouse.isMouseBoostEnabled
+                ? "Disable Mouse Boost" : "Enable Mouse Boost"
             let mouseItem = NSMenuItem(
                 title: mouseTitle,
                 action: #selector(toggleMouseBoost),
-                keyEquivalent: "m"
+                keyEquivalent: ""
             )
             mouseItem.target = self
-            mouseItem.keyEquivalentModifierMask = .command
+            if let hotkey = configStore.config.hotkeys.first(where: { $0.id == "toggleMouseBoost" }),
+               hotkey.isEnabled, let kc = hotkey.keyCode,
+               let equiv = KeyCodeMap.menuKeyEquivalent(for: kc) {
+                mouseItem.keyEquivalent = equiv
+                mouseItem.keyEquivalentModifierMask = NSEvent.ModifierFlags(rawValue: hotkey.modifiers)
+                    .intersection(.deviceIndependentFlagsMask)
+            }
             menu.addItem(mouseItem)
         }
 
@@ -135,10 +154,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let settingsItem = NSMenuItem(
             title: "Settings...",
             action: #selector(openSettings),
-            keyEquivalent: ","
+            keyEquivalent: ""
         )
         settingsItem.target = self
-        settingsItem.keyEquivalentModifierMask = .command
         menu.addItem(settingsItem)
 
         menu.addItem(.separator())
@@ -147,10 +165,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let quitItem = NSMenuItem(
             title: "Quit GameMode",
             action: #selector(quitApp),
-            keyEquivalent: "q"
+            keyEquivalent: ""
         )
         quitItem.target = self
-        quitItem.keyEquivalentModifierMask = .command
         menu.addItem(quitItem)
 
         self.statusItem.menu = menu
@@ -179,6 +196,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let willChangeFunction = config.functionKeysInGamingMode
         let willChangeMouse = config.mouse.isEnabled && config.mouse.isMouseBoostEnabled
 
+        // Gestures
+        let gesturesToDisable = config.gestures.filter { $0.disableInGamingMode }
+        let willChangeGestures = !gesturesToDisable.isEmpty
+        var capturedGestureValues: [String: Int] = [:]
+        if willChangeGestures {
+            capturedGestureValues = settingsManager.captureGestureValues(entries: gesturesToDisable)
+        }
+
         // Write state journal FIRST
         let state = GameModeState(
             isActive: true,
@@ -187,7 +212,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 functionKeysChanged: willChangeFunction,
                 disabledShortcutIDs: shortcutIDs,
                 mouseSpeedChanged: willChangeMouse,
-                previousMouseSpeed: capturedMouseSpeed ?? config.mouse.normalSpeed
+                previousMouseSpeed: capturedMouseSpeed ?? config.mouse.normalSpeed,
+                gesturesChanged: willChangeGestures,
+                previousGestureValues: willChangeGestures ? capturedGestureValues : nil
             )
         )
         StateJournal.write(state)
@@ -199,7 +226,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if !shortcutIDs.isEmpty {
             settingsManager.writeShortcuts(ids: shortcutIDs, enabled: false)
         }
-        if willChangeFunction || !shortcutIDs.isEmpty {
+        if willChangeGestures {
+            settingsManager.writeGestures(entries: gesturesToDisable, value: 0)
+        }
+        if willChangeFunction || !shortcutIDs.isEmpty || willChangeGestures {
             settingsManager.applyKeyboardChanges()
         }
 
@@ -212,9 +242,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         buildMenu()
 
         // Notification
-        let body = willChangeMouse
-            ? "Keyboard, shortcuts, and mouse sensitivity adjusted"
-            : "Keyboard shortcuts and function keys adjusted"
+        var adjustments: [String] = []
+        if willChangeFunction || !shortcutIDs.isEmpty { adjustments.append("keyboard") }
+        if willChangeGestures { adjustments.append("gestures") }
+        if willChangeMouse { adjustments.append("mouse sensitivity") }
+        let body = adjustments.isEmpty
+            ? "Gaming mode enabled"
+            : adjustments.joined(separator: ", ").prefix(1).uppercased()
+              + adjustments.joined(separator: ", ").dropFirst() + " adjusted"
         showNotification(title: "Game Mode — Active", body: body)
     }
 
@@ -233,8 +268,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 ids: state.appliedChanges.disabledShortcutIDs, enabled: true
             )
         }
+        // Restore gestures
+        if state.appliedChanges.gesturesChanged,
+           let previousValues = state.appliedChanges.previousGestureValues {
+            let gestureEntries = configStore.config.gestures.filter { previousValues.keys.contains($0.id) }
+            settingsManager.restoreGestures(capturedValues: previousValues, entries: gestureEntries)
+        }
+
         if state.appliedChanges.functionKeysChanged
-            || !state.appliedChanges.disabledShortcutIDs.isEmpty {
+            || !state.appliedChanges.disabledShortcutIDs.isEmpty
+            || state.appliedChanges.gesturesChanged {
             settingsManager.applyKeyboardChanges()
         }
 
@@ -307,19 +350,38 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let hostingView = NSHostingController(
             rootView: SettingsWindow(
                 configStore: configStore,
-                onForceRestore: { [weak self] in self?.forceRestoreAllSettings() }
+                onForceRestore: { [weak self] in self?.forceRestoreAllSettings() },
+                onHotkeysChanged: { [weak self] in self?.registerHotkeys() }
             )
         )
 
         let window = NSWindow(contentViewController: hostingView)
         window.title = "GameMode Settings"
         window.styleMask = [.titled, .closable]
+        window.setContentSize(NSSize(width: 540, height: 480))
+        window.isReleasedWhenClosed = false
         window.center()
         window.makeKeyAndOrderFront(nil)
-        window.isReleasedWhenClosed = false
 
         self.settingsWindow = window
         NSApp.activate(ignoringOtherApps: true)
+
+        // Start polling accessibility status while settings is open
+        configStore.startAccessibilityPolling()
+
+        // Observe window close to stop polling
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(settingsWindowWillClose),
+            name: NSWindow.willCloseNotification,
+            object: window
+        )
+    }
+
+    @objc private func settingsWindowWillClose(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow, window === settingsWindow else { return }
+        configStore.stopAccessibilityPolling()
+        NotificationCenter.default.removeObserver(self, name: NSWindow.willCloseNotification, object: window)
     }
 
     @objc private func quitApp() {
@@ -358,7 +420,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if !changes.disabledShortcutIDs.isEmpty {
             settingsManager.writeShortcuts(ids: changes.disabledShortcutIDs, enabled: true)
         }
-        if changes.functionKeysChanged || !changes.disabledShortcutIDs.isEmpty {
+        if changes.gesturesChanged, let previousValues = changes.previousGestureValues {
+            let gestureEntries = configStore.config.gestures.filter { previousValues.keys.contains($0.id) }
+            settingsManager.restoreGestures(capturedValues: previousValues, entries: gestureEntries)
+        }
+        if changes.functionKeysChanged || !changes.disabledShortcutIDs.isEmpty || changes.gesturesChanged {
             settingsManager.applyKeyboardChanges()
         }
         if changes.mouseSpeedChanged, let previousSpeed = changes.previousMouseSpeed {
@@ -379,6 +445,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let allShortcutIDs = configStore.config.shortcuts.map { $0.id }
         settingsManager.writeShortcuts(ids: allShortcutIDs, enabled: true)
+
+        // Restore gestures from journal if available, otherwise re-enable all
+        let journalState = StateJournal.load()
+        if let previousValues = journalState.appliedChanges.previousGestureValues {
+            let gestureEntries = configStore.config.gestures.filter { previousValues.keys.contains($0.id) }
+            settingsManager.restoreGestures(capturedValues: previousValues, entries: gestureEntries)
+        } else {
+            // Best effort: re-enable all gestures that were set to be disabled
+            let gesturesToRestore = configStore.config.gestures.filter { $0.disableInGamingMode }
+            if !gesturesToRestore.isEmpty {
+                settingsManager.writeGestures(entries: gesturesToRestore, value: 2)
+            }
+        }
+
         settingsManager.applyKeyboardChanges()
 
         if let captured = configStore.config.mouse.capturedSystemSpeed {
@@ -396,6 +476,65 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             title: "GameMode — Force Restored",
             body: "All settings reverted to pre-gaming values"
         )
+    }
+
+    // MARK: - Global Hotkeys
+
+    private func registerHotkeys() {
+        let hotkeys = configStore.config.hotkeys
+        hotkeyManager.register(hotkeys: hotkeys, handlers: [
+            "toggleGameMode": { [weak self] in self?.toggleGameMode() },
+            "toggleMouseBoost": { [weak self] in self?.toggleMouseBoost() },
+            "toggleInputSource": { [weak self] in self?.toggleInputSource() },
+        ])
+    }
+
+    private func toggleInputSource() {
+        // Use Carbon TIS API to cycle to the next input source
+        guard let sourceList = TISCreateInputSourceList(nil, false)?.takeRetainedValue() as? [TISInputSource],
+              sourceList.count >= 2 else {
+            print("[Hotkeys] Cannot toggle input source: fewer than 2 sources available")
+            return
+        }
+
+        // Find selectable keyboard input sources
+        let selectableSources = sourceList.filter { source in
+            guard let category = TISGetInputSourceProperty(source, kTISPropertyInputSourceCategory) else { return false }
+            let cat = Unmanaged<CFString>.fromOpaque(category).takeUnretainedValue()
+            guard cat == kTISCategoryKeyboardInputSource else { return false }
+            guard let selectable = TISGetInputSourceProperty(source, kTISPropertyInputSourceIsSelectCapable) else { return false }
+            let sel = Unmanaged<CFBoolean>.fromOpaque(selectable).takeUnretainedValue()
+            return CFBooleanGetValue(sel)
+        }
+
+        guard selectableSources.count >= 2 else {
+            print("[Hotkeys] Fewer than 2 selectable input sources")
+            return
+        }
+
+        let current = TISCopyCurrentKeyboardInputSource().takeRetainedValue()
+        guard let currentID = TISGetInputSourceProperty(current, kTISPropertyInputSourceID) else { return }
+        let currentIDStr = Unmanaged<CFString>.fromOpaque(currentID).takeUnretainedValue() as String
+
+        // Find the next source after the current one
+        var foundCurrent = false
+        var nextSource: TISInputSource?
+        for source in selectableSources {
+            if foundCurrent {
+                nextSource = source
+                break
+            }
+            guard let srcID = TISGetInputSourceProperty(source, kTISPropertyInputSourceID) else { continue }
+            let srcIDStr = Unmanaged<CFString>.fromOpaque(srcID).takeUnretainedValue() as String
+            if srcIDStr == currentIDStr {
+                foundCurrent = true
+            }
+        }
+
+        // Wrap around to first source
+        let target = nextSource ?? selectableSources[0]
+        TISSelectInputSource(target)
+        print("[Hotkeys] Switched input source")
     }
 
     // MARK: - Notifications

@@ -3,7 +3,7 @@
 //  GameMode
 //
 //  Created by Nikita Moshyn on 15/03/2026.
-//  Copyright © 2026 Nikita Moshyn. All rights reserved.
+//  Copyright © 2025 Nikita Moshyn. All rights reserved.
 //
 
 import SwiftUI
@@ -15,6 +15,60 @@ struct SystemSettingsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                // Accessibility Permission
+                Text("Accessibility Permission")
+                    .font(.headline)
+
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(configStore.isAccessibilityGranted ? Color.green : Color.red)
+                        .frame(width: 8, height: 8)
+                    Text(configStore.isAccessibilityGranted ? "Granted" : "Not Granted")
+                        .foregroundColor(configStore.isAccessibilityGranted ? .green : .red)
+                }
+
+                if !configStore.isAccessibilityGranted {
+                    Text("Accessibility access is required for global hotkeys and gesture control. Without it, keyboard shortcuts will only work when the app is focused.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("How to enable:")
+                            .font(.caption)
+                            .bold()
+                        Text("1. Click \"Open System Settings\" below")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text("2. Find GameMode in the list")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text("3. Toggle the switch next to it")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text("4. If not listed, click \"+\" and add GameMode.app")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
+                    HStack(spacing: 12) {
+                        Button("Request Permission") {
+                            HotkeyManager.requestAccessibilityPermission()
+                        }
+
+                        Button("Open System Settings") {
+                            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+                                NSWorkspace.shared.open(url)
+                            }
+                        }
+                    }
+                } else {
+                    Text("GameMode can monitor global hotkeys and control system gestures.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
+                Divider()
+
                 // Shutdown Protection
                 Text("Shutdown Protection")
                     .font(.headline)
@@ -47,8 +101,8 @@ struct SystemSettingsView: View {
 
                 HStack {
                     Text("Gaming mode:")
-                    Text(StateJournal.hasDirtyState ? "Active (stale)" : "Inactive")
-                        .foregroundColor(StateJournal.hasDirtyState ? .orange : .secondary)
+                    Text(configStore.isGamingMode ? "Active" : (StateJournal.hasDirtyState ? "Active (stale)" : "Inactive"))
+                        .foregroundColor(configStore.isGamingMode ? .green : (StateJournal.hasDirtyState ? .orange : .secondary))
                 }
 
                 HStack {

@@ -134,6 +134,46 @@ class SettingsManager {
         return _IOHIDSetAccelerationWithKey(connect, key, speed) == kIOReturnSuccess
     }
 
+    // MARK: - Gestures
+
+    /// Capture current gesture values before disabling them.
+    /// Returns a dictionary of [preferenceKey: originalIntValue].
+    func captureGestureValues(entries: [GestureEntry]) -> [String: Int] {
+        var captured: [String: Int] = [:]
+        for entry in entries {
+            guard let domain = entry.domains.first else { continue }
+            let result = shell(defaultsBin, "read", domain, entry.id)
+            let trimmed = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let val = Int(trimmed) {
+                captured[entry.id] = val
+            }
+        }
+        print("[Settings] Captured \(captured.count) gesture value(s)")
+        return captured
+    }
+
+    /// Write gesture preferences. Pass 0 to disable, or original value to restore.
+    /// Writes to ALL domains for each entry.
+    func writeGestures(entries: [GestureEntry], value: Int) {
+        for entry in entries {
+            for domain in entry.domains {
+                shell(defaultsBin, "write", domain, entry.id, "-int", String(value))
+            }
+        }
+        print("[Settings] Wrote \(entries.count) gesture(s) = \(value)")
+    }
+
+    /// Restore gestures from previously captured values.
+    func restoreGestures(capturedValues: [String: Int], entries: [GestureEntry]) {
+        for entry in entries {
+            guard let original = capturedValues[entry.id] else { continue }
+            for domain in entry.domains {
+                shell(defaultsBin, "write", domain, entry.id, "-int", String(original))
+            }
+        }
+        print("[Settings] Restored \(capturedValues.count) gesture(s)")
+    }
+
     // MARK: - Helpers
 
     private func restartPreferencesDaemon() {

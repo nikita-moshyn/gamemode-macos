@@ -11,12 +11,18 @@ import SwiftUI
 struct SettingsWindow: View {
     @ObservedObject var configStore: ConfigStore
     var onForceRestore: (() -> Void)?
+    var onHotkeysChanged: (() -> Void)?
 
     var body: some View {
         TabView {
             ShortcutsSettingsView(configStore: configStore)
                 .tabItem {
                     Label("Shortcuts", systemImage: "keyboard")
+                }
+
+            HotkeysSettingsView(configStore: configStore, onHotkeysChanged: onHotkeysChanged)
+                .tabItem {
+                    Label("Hotkeys", systemImage: "command.square")
                 }
 
             AppsSettingsView(configStore: configStore)
@@ -34,6 +40,6 @@ struct SettingsWindow: View {
                     Label("System", systemImage: "gearshape.2")
                 }
         }
-        .frame(width: 500, height: 420)
+        .frame(width: 540, height: 480)
     }
 }

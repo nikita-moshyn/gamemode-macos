@@ -27,13 +27,39 @@ struct AppliedChanges: Codable {
     var disabledShortcutIDs: [Int]
     var mouseSpeedChanged: Bool
     var previousMouseSpeed: Double?
+    var gesturesChanged: Bool
+    var previousGestureValues: [String: Int]?
 
     static let empty = AppliedChanges(
         functionKeysChanged: false,
         disabledShortcutIDs: [],
         mouseSpeedChanged: false,
-        previousMouseSpeed: nil
+        previousMouseSpeed: nil,
+        gesturesChanged: false,
+        previousGestureValues: nil
     )
+
+    // Migration-safe decoder: older journals won't have gesture fields
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        functionKeysChanged = try container.decode(Bool.self, forKey: .functionKeysChanged)
+        disabledShortcutIDs = try container.decode([Int].self, forKey: .disabledShortcutIDs)
+        mouseSpeedChanged = try container.decode(Bool.self, forKey: .mouseSpeedChanged)
+        previousMouseSpeed = try container.decodeIfPresent(Double.self, forKey: .previousMouseSpeed)
+        gesturesChanged = try container.decodeIfPresent(Bool.self, forKey: .gesturesChanged) ?? false
+        previousGestureValues = try container.decodeIfPresent([String: Int].self, forKey: .previousGestureValues)
+    }
+
+    init(functionKeysChanged: Bool, disabledShortcutIDs: [Int], mouseSpeedChanged: Bool,
+         previousMouseSpeed: Double?, gesturesChanged: Bool = false,
+         previousGestureValues: [String: Int]? = nil) {
+        self.functionKeysChanged = functionKeysChanged
+        self.disabledShortcutIDs = disabledShortcutIDs
+        self.mouseSpeedChanged = mouseSpeedChanged
+        self.previousMouseSpeed = previousMouseSpeed
+        self.gesturesChanged = gesturesChanged
+        self.previousGestureValues = previousGestureValues
+    }
 }
 
 // MARK: - Journal (file-based state persistence for crash recovery)

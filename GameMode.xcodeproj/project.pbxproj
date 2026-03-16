@@ -24,6 +24,12 @@
 		BB000100000000000000000F /* AppPickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000200000000000000000F /* AppPickerSheet.swift */; };
 		BB0001000000000000000010 /* MouseSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0002000000000000000010 /* MouseSettingsView.swift */; };
 		BB0001000000000000000011 /* SystemSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0002000000000000000011 /* SystemSettingsView.swift */; };
+		BB0001000000000000000015 /* GestureEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0002000000000000000015 /* GestureEntry.swift */; };
+		BB0001000000000000000016 /* AppHotkey.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0002000000000000000016 /* AppHotkey.swift */; };
+		BB0001000000000000000017 /* KeyCodeMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0002000000000000000017 /* KeyCodeMap.swift */; };
+		BB0001000000000000000018 /* HotkeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0002000000000000000018 /* HotkeyManager.swift */; };
+		BB0001000000000000000019 /* ShortcutRecorderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0002000000000000000019 /* ShortcutRecorderView.swift */; };
+		BB000100000000000000001A /* HotkeysSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000200000000000000001A /* HotkeysSettingsView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -47,6 +53,12 @@
 		BB0002000000000000000012 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		BB0002000000000000000013 /* GameMode.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = GameMode.entitlements; sourceTree = "<group>"; };
 		BB0002000000000000000014 /* GameMode.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GameMode.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		BB0002000000000000000015 /* GestureEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GestureEntry.swift; sourceTree = "<group>"; };
+		BB0002000000000000000016 /* AppHotkey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppHotkey.swift; sourceTree = "<group>"; };
+		BB0002000000000000000017 /* KeyCodeMap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyCodeMap.swift; sourceTree = "<group>"; };
+		BB0002000000000000000018 /* HotkeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyManager.swift; sourceTree = "<group>"; };
+		BB0002000000000000000019 /* ShortcutRecorderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutRecorderView.swift; sourceTree = "<group>"; };
+		BB000200000000000000001A /* HotkeysSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeysSettingsView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -106,6 +118,7 @@
 				BB0002000000000000000005 /* SettingsManager.swift */,
 				BB0002000000000000000006 /* ConfigStore.swift */,
 				BB0002000000000000000007 /* StateJournal.swift */,
+				BB0002000000000000000018 /* HotkeyManager.swift */,
 			);
 			path = Core;
 			sourceTree = "<group>";
@@ -117,6 +130,9 @@
 				BB0002000000000000000009 /* MonitoredApp.swift */,
 				BB000200000000000000000A /* ShortcutEntry.swift */,
 				BB000200000000000000000B /* SymbolicHotkeys.swift */,
+				BB0002000000000000000015 /* GestureEntry.swift */,
+				BB0002000000000000000016 /* AppHotkey.swift */,
+				BB0002000000000000000017 /* KeyCodeMap.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -130,6 +146,8 @@
 				BB000200000000000000000F /* AppPickerSheet.swift */,
 				BB0002000000000000000010 /* MouseSettingsView.swift */,
 				BB0002000000000000000011 /* SystemSettingsView.swift */,
+				BB0002000000000000000019 /* ShortcutRecorderView.swift */,
+				BB000200000000000000001A /* HotkeysSettingsView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -203,6 +221,12 @@
 				BB000100000000000000000F /* AppPickerSheet.swift in Sources */,
 				BB0001000000000000000010 /* MouseSettingsView.swift in Sources */,
 				BB0001000000000000000011 /* SystemSettingsView.swift in Sources */,
+				BB0001000000000000000015 /* GestureEntry.swift in Sources */,
+				BB0001000000000000000016 /* AppHotkey.swift in Sources */,
+				BB0001000000000000000017 /* KeyCodeMap.swift in Sources */,
+				BB0001000000000000000018 /* HotkeyManager.swift in Sources */,
+				BB0001000000000000000019 /* ShortcutRecorderView.swift in Sources */,
+				BB000100000000000000001A /* HotkeysSettingsView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

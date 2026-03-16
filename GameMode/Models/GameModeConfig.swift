@@ -16,6 +16,8 @@ struct GameModeConfig: Codable {
     var functionKeysInGamingMode: Bool
     var mouse: MouseConfig
     var system: SystemConfig
+    var gestures: [GestureEntry]
+    var hotkeys: [AppHotkey]
 
     static var defaults: GameModeConfig {
         GameModeConfig(
@@ -23,8 +25,35 @@ struct GameModeConfig: Codable {
             shortcuts: ShortcutEntry.defaults,
             functionKeysInGamingMode: true,
             mouse: MouseConfig(),
-            system: SystemConfig()
+            system: SystemConfig(),
+            gestures: GestureEntry.defaults,
+            hotkeys: AppHotkey.defaults
         )
+    }
+
+    // Migration-safe decoder: older configs won't have gestures/hotkeys fields
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        monitoredApps = try container.decode([MonitoredApp].self, forKey: .monitoredApps)
+        shortcuts = try container.decode([ShortcutEntry].self, forKey: .shortcuts)
+        functionKeysInGamingMode = try container.decode(Bool.self, forKey: .functionKeysInGamingMode)
+        mouse = try container.decode(MouseConfig.self, forKey: .mouse)
+        system = try container.decode(SystemConfig.self, forKey: .system)
+        gestures = try container.decodeIfPresent([GestureEntry].self, forKey: .gestures) ?? GestureEntry.defaults
+        hotkeys = try container.decodeIfPresent([AppHotkey].self, forKey: .hotkeys) ?? AppHotkey.defaults
+    }
+
+    init(monitoredApps: [MonitoredApp], shortcuts: [ShortcutEntry], functionKeysInGamingMode: Bool,
+         mouse: MouseConfig, system: SystemConfig,
+         gestures: [GestureEntry] = GestureEntry.defaults,
+         hotkeys: [AppHotkey] = AppHotkey.defaults) {
+        self.monitoredApps = monitoredApps
+        self.shortcuts = shortcuts
+        self.functionKeysInGamingMode = functionKeysInGamingMode
+        self.mouse = mouse
+        self.system = system
+        self.gestures = gestures
+        self.hotkeys = hotkeys
     }
 }
 

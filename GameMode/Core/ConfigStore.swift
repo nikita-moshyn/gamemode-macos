@@ -19,6 +19,14 @@ class ConfigStore: ObservableObject {
         didSet { save() }
     }
 
+    /// Runtime-only state (not persisted). Observable by SwiftUI views.
+    @Published var isGamingMode: Bool = false
+
+    /// Live accessibility permission status. Polled while settings window is open.
+    @Published var isAccessibilityGranted: Bool = HotkeyManager.isAccessibilityGranted
+
+    private var accessibilityTimer: Timer?
+
     private let key = "GameModeConfig_v2"
     private let defaults = UserDefaults.standard
 
@@ -86,5 +94,45 @@ class ConfigStore: ObservableObject {
     func toggleShortcut(id: Int) {
         guard let index = config.shortcuts.firstIndex(where: { $0.id == id }) else { return }
         config.shortcuts[index].disableInGamingMode.toggle()
+    }
+
+    // MARK: - Gesture Management
+
+    func toggleGesture(id: String) {
+        guard let index = config.gestures.firstIndex(where: { $0.id == id }) else { return }
+        config.gestures[index].disableInGamingMode.toggle()
+    }
+
+    // MARK: - Hotkey Management
+
+    func updateHotkey(id: String, keyCode: UInt16?, modifiers: UInt) {
+        guard let index = config.hotkeys.firstIndex(where: { $0.id == id }) else { return }
+        config.hotkeys[index].keyCode = keyCode
+        config.hotkeys[index].modifiers = modifiers
+    }
+
+    func toggleHotkey(id: String) {
+        guard let index = config.hotkeys.firstIndex(where: { $0.id == id }) else { return }
+        config.hotkeys[index].isEnabled.toggle()
+    }
+
+    // MARK: - Accessibility Polling
+
+    /// Start polling `AXIsProcessTrusted()` every 2 seconds.
+    /// Call when the settings window opens.
+    func startAccessibilityPolling() {
+        stopAccessibilityPolling()
+        isAccessibilityGranted = HotkeyManager.isAccessibilityGranted
+        accessibilityTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.isAccessibilityGranted = HotkeyManager.isAccessibilityGranted
+            }
+        }
+    }
+
+    /// Stop polling. Call when the settings window closes.
+    func stopAccessibilityPolling() {
+        accessibilityTimer?.invalidate()
+        accessibilityTimer = nil
     }
 }
