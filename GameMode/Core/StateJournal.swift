@@ -10,6 +10,8 @@ import Foundation
 
 // MARK: - State Model
 
+typealias GesturePreferenceValues = [String: [String: Int?]]
+
 struct GameModeState: Codable {
     var isActive: Bool
     var activatedAt: Date?
@@ -24,15 +26,19 @@ struct GameModeState: Codable {
 
 struct AppliedChanges: Codable {
     var functionKeysChanged: Bool
+    var previousFunctionKeysEnabled: Bool?
     var disabledShortcutIDs: [Int]
+    var previousShortcutStates: [Int: Bool]?
     var mouseSpeedChanged: Bool
     var previousMouseSpeed: Double?
     var gesturesChanged: Bool
-    var previousGestureValues: [String: Int]?
+    var previousGestureValues: GesturePreferenceValues?
 
     static let empty = AppliedChanges(
         functionKeysChanged: false,
+        previousFunctionKeysEnabled: nil,
         disabledShortcutIDs: [],
+        previousShortcutStates: nil,
         mouseSpeedChanged: false,
         previousMouseSpeed: nil,
         gesturesChanged: false,
@@ -43,18 +49,37 @@ struct AppliedChanges: Codable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         functionKeysChanged = try container.decode(Bool.self, forKey: .functionKeysChanged)
+        previousFunctionKeysEnabled = try container.decodeIfPresent(Bool.self, forKey: .previousFunctionKeysEnabled)
         disabledShortcutIDs = try container.decode([Int].self, forKey: .disabledShortcutIDs)
+        previousShortcutStates = try container.decodeIfPresent([Int: Bool].self, forKey: .previousShortcutStates)
         mouseSpeedChanged = try container.decode(Bool.self, forKey: .mouseSpeedChanged)
         previousMouseSpeed = try container.decodeIfPresent(Double.self, forKey: .previousMouseSpeed)
         gesturesChanged = try container.decodeIfPresent(Bool.self, forKey: .gesturesChanged) ?? false
-        previousGestureValues = try container.decodeIfPresent([String: Int].self, forKey: .previousGestureValues)
+        let nestedOptionalValues = try container.decodeIfPresent(
+            GesturePreferenceValues.self,
+            forKey: .previousGestureValues
+        )
+        let nestedValues = try container.decodeIfPresent(
+            [String: [String: Int]].self,
+            forKey: .previousGestureValues
+        )?.mapValues { domainValues in
+            domainValues.mapValues { Optional($0) }
+        }
+        let legacyValues = try container.decodeIfPresent(
+            [String: Int].self,
+            forKey: .previousGestureValues
+        )?.mapValues { ["legacy": Optional($0)] }
+        previousGestureValues = nestedOptionalValues ?? nestedValues ?? legacyValues
     }
 
-    init(functionKeysChanged: Bool, disabledShortcutIDs: [Int], mouseSpeedChanged: Bool,
-         previousMouseSpeed: Double?, gesturesChanged: Bool = false,
-         previousGestureValues: [String: Int]? = nil) {
+    init(functionKeysChanged: Bool, previousFunctionKeysEnabled: Bool? = nil,
+         disabledShortcutIDs: [Int], previousShortcutStates: [Int: Bool]? = nil,
+         mouseSpeedChanged: Bool, previousMouseSpeed: Double?, gesturesChanged: Bool = false,
+         previousGestureValues: GesturePreferenceValues? = nil) {
         self.functionKeysChanged = functionKeysChanged
+        self.previousFunctionKeysEnabled = previousFunctionKeysEnabled
         self.disabledShortcutIDs = disabledShortcutIDs
+        self.previousShortcutStates = previousShortcutStates
         self.mouseSpeedChanged = mouseSpeedChanged
         self.previousMouseSpeed = previousMouseSpeed
         self.gesturesChanged = gesturesChanged
@@ -98,6 +123,14 @@ class StateJournal {
         } catch {
             print("[StateJournal] Write failed: \(error)")
         }
+    }
+
+    /// Load-mutate-write helper for changes that happen mid-session
+    /// (for example, mouse boost toggles while game mode remains active).
+    static func update(_ mutate: (inout GameModeState) -> Void) {
+        var state = load()
+        mutate(&state)
+        write(state)
     }
 
     /// Load state. Returns inactive if file is missing or corrupt.

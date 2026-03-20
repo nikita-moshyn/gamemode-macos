@@ -3,7 +3,7 @@
 //  GameMode
 //
 //  Created by Nikita Moshyn on 15/03/2026.
-//  Copyright © 2025 Nikita Moshyn. All rights reserved.
+//  Copyright © 2026 Nikita Moshyn. All rights reserved.
 //
 
 import SwiftUI
@@ -11,6 +11,7 @@ import SwiftUI
 struct SystemSettingsView: View {
     @ObservedObject var configStore: ConfigStore
     var onForceRestore: (() -> Void)?
+    var onResetAllSavedData: (() -> Void)?
 
     var body: some View {
         Form {
@@ -87,6 +88,15 @@ struct SystemSettingsView: View {
                 }
             } footer: {
                 Text("Emergency button: reads the state journal and restores every setting to pre-gaming values.")
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Button("Reset All Saved Data", role: .destructive) {
+                    onResetAllSavedData?()
+                }
+            } footer: {
+                Text("Deletes the saved app configuration and crash-recovery journal, then returns GameMode to its default state.")
                     .foregroundStyle(.secondary)
             }
         }

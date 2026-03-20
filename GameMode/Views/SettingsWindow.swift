@@ -43,7 +43,9 @@ enum SettingsSection: String, CaseIterable, Identifiable {
 
 struct SettingsWindow: View {
     @ObservedObject var configStore: ConfigStore
+    var onApplyConfiguredMouseSpeed: (() -> Void)?
     var onForceRestore: (() -> Void)?
+    var onResetAllSavedData: (() -> Void)?
     var onHotkeysChanged: (() -> Void)?
 
     @State private var selectedSection: SettingsSection = .general
@@ -87,9 +89,16 @@ struct SettingsWindow: View {
         case .applications:
             AppsSettingsView(configStore: configStore)
         case .mouse:
-            MouseSettingsView(configStore: configStore)
+            MouseSettingsView(
+                configStore: configStore,
+                onApplyConfiguredMouseSpeed: onApplyConfiguredMouseSpeed
+            )
         case .system:
-            SystemSettingsView(configStore: configStore, onForceRestore: onForceRestore)
+            SystemSettingsView(
+                configStore: configStore,
+                onForceRestore: onForceRestore,
+                onResetAllSavedData: onResetAllSavedData
+            )
         }
     }
 }

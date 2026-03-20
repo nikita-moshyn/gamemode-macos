@@ -7,6 +7,7 @@
 //
 
 import AppKit
+import Combine
 import Carbon
 import SwiftUI
 import UserNotifications
@@ -21,10 +22,27 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var hotkeyManager = HotkeyManager()
     private var settingsWindow: NSWindow?
     private var aboutWindow: NSWindow?
+    private var cancellables = Set<AnyCancellable>()
+    private let transitionStateQueue = DispatchQueue(label: "com.nikita.GameMode.transitionState")
+    private var targetGameModeState = false
+    private var appliedGameModeState = false
+    private var isProcessingGameModeTransitions = false
+    private var transitionSequence: UInt64 = 0
 
     private var isGamingMode: Bool {
         get { configStore.isGamingMode }
         set { configStore.isGamingMode = newValue }
+    }
+
+    private struct TransitionTrace {
+        let id: UInt64
+        let name: String
+        private let startedAt = CFAbsoluteTimeGetCurrent()
+
+        func log(_ message: String) {
+            let elapsed = CFAbsoluteTimeGetCurrent() - startedAt
+            print("[\(name)#\(id)] \(message) (+\(String(format: "%.3f", elapsed))s)")
+        }
     }
 
     // MARK: - Lifecycle
@@ -71,6 +89,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Register global hotkeys
         registerHotkeys()
+        observeConfigurationChanges()
 
         // Register for shutdown/restart
         NSWorkspace.shared.notificationCenter.addObserver(
@@ -85,6 +104,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             name: NSApplication.willTerminateNotification,
             object: nil
         )
+    }
+
+    private func observeConfigurationChanges() {
+        configStore.$config
+            .map(\.mouse.isEnabled)
+            .removeDuplicates()
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isEnabled in
+                self?.buildMenu()
+                guard let self, !isEnabled else { return }
+                self.handleMouseSubsystemDisabled()
+            }
+            .store(in: &cancellables)
     }
 
     // MARK: - Status Bar
@@ -116,7 +149,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let gameModeTitle = isGamingMode ? "Disable Game Mode" : "Enable Game Mode"
         let gameModeItem = NSMenuItem(
             title: gameModeTitle,
-            action: #selector(toggleGameMode),
+            action: #selector(toggleGameModeMenuAction),
             keyEquivalent: ""
         )
         gameModeItem.target = self
@@ -129,16 +162,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         menu.addItem(gameModeItem)
 
-        // Mouse toggle — only shown when mouse management is enabled
-        if configStore.config.mouse.isEnabled {
-            let mouseTitle = configStore.config.mouse.isMouseBoostEnabled
+        // Mouse toggle — only shown when mouse management is enabled and gaming mode is active
+        if configStore.config.mouse.isEnabled && isGamingMode {
+            let mouseTitle = configStore.isMouseBoostApplied
                 ? "Disable Mouse Boost" : "Enable Mouse Boost"
             let mouseItem = NSMenuItem(
                 title: mouseTitle,
-                action: #selector(toggleMouseBoost),
+                action: #selector(toggleMouseBoostMenuAction),
                 keyEquivalent: ""
             )
             mouseItem.target = self
+            mouseItem.isEnabled = true
             if let hotkey = configStore.config.hotkeys.first(where: { $0.id == "toggleMouseBoost" }),
                hotkey.isEnabled, let kc = hotkey.keyCode,
                let equiv = KeyCodeMap.menuKeyEquivalent(for: kc) {
@@ -198,169 +232,419 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Game Mode
 
+    private static let settingsQueue = DispatchQueue(label: "com.nikita.GameMode.settings", qos: .userInitiated)
+
     private func activateGamingMode() {
-        guard !isGamingMode else { return }
+        requestGameModeTransition(to: true, source: "automatic")
+    }
 
-        let config = configStore.config
+    private func deactivateGamingMode() {
+        requestGameModeTransition(to: false, source: "automatic")
+    }
 
-        // Auto-capture mouse speed before we touch anything
-        var capturedMouseSpeed: Double? = nil
-        if config.mouse.isEnabled && config.mouse.autoCapture {
-            capturedMouseSpeed = settingsManager.readCurrentMouseSpeed()
-            if let speed = capturedMouseSpeed {
-                configStore.config.mouse.capturedSystemSpeed = speed
+    private func requestGameModeTransition(to desiredState: Bool, source: String) {
+        print("[GameMode] request source=\(source) target=\(desiredState ? "on" : "off")")
+        applyVisibleGamingModeState(desiredState)
+
+        transitionStateQueue.async { [weak self] in
+            guard let self else { return }
+            self.targetGameModeState = desiredState
+
+            guard !self.isProcessingGameModeTransitions else { return }
+            self.isProcessingGameModeTransitions = true
+
+            Self.settingsQueue.async { [weak self] in
+                self?.processPendingGameModeTransitions()
             }
         }
+    }
 
-        // Compute what we're about to change
+    private func processPendingGameModeTransitions() {
+        while let transition = nextPendingGameModeTransition() {
+            transition.trace.log("begin desired=\(transition.desiredState ? "on" : "off")")
+            if transition.desiredState {
+                performGameModeActivation(trace: transition.trace)
+            } else {
+                performGameModeDeactivation(trace: transition.trace)
+            }
+            transitionStateQueue.sync {
+                self.appliedGameModeState = transition.desiredState
+            }
+            transition.trace.log("completed")
+        }
+    }
+
+    private func nextPendingGameModeTransition() -> (desiredState: Bool, trace: TransitionTrace)? {
+        transitionStateQueue.sync {
+            guard appliedGameModeState != targetGameModeState else {
+                isProcessingGameModeTransitions = false
+                return nil
+            }
+
+            transitionSequence += 1
+            return (
+                desiredState: targetGameModeState,
+                trace: TransitionTrace(
+                    id: transitionSequence,
+                    name: targetGameModeState ? "GameModeOn" : "GameModeOff"
+                )
+            )
+        }
+    }
+
+    private func nextTrace(named name: String) -> TransitionTrace {
+        let id = transitionStateQueue.sync { () -> UInt64 in
+            transitionSequence += 1
+            return transitionSequence
+        }
+        return TransitionTrace(id: id, name: name)
+    }
+
+    private func performGameModeActivation(trace: TransitionTrace) {
+        let config = currentConfigSnapshot()
+
+        // --- Keyboard settings (fn keys + shortcuts + gestures) ---
         let shortcutIDs = config.shortcuts
             .filter { $0.disableInGamingMode }
             .map { $0.id }
-        let willChangeFunction = config.functionKeysInGamingMode
-        let willChangeMouse = config.mouse.isEnabled && config.mouse.isMouseBoostEnabled
-
-        // Gestures
         let gesturesToDisable = config.gestures.filter { $0.disableInGamingMode }
-        let willChangeGestures = !gesturesToDisable.isEmpty
-        var capturedGestureValues: [String: Int] = [:]
-        if willChangeGestures {
-            capturedGestureValues = settingsManager.captureGestureValues(entries: gesturesToDisable)
-        }
 
-        // Write state journal FIRST
+        trace.log("keyboard activate start")
+        let snapshot = settingsManager.activateKeyboardSettings(
+            functionKeysEnabled: config.functionKeysInGamingMode,
+            shortcutIDs: shortcutIDs,
+            gestures: gesturesToDisable
+        )
+        trace.log("keyboard activate complete")
+
+        // --- Mouse ---
+        let shouldAutoEnableMouseBoost = config.mouse.isEnabled && config.mouse.isMouseBoostEnabled
+        let mouseBaselineSpeed = shouldAutoEnableMouseBoost
+            ? captureMouseBaselineSpeed(trace: trace)
+            : nil
+        let shouldApplyMouseBoost = mouseBaselineSpeed != nil
+
+        // --- Journal ---
         let state = GameModeState(
             isActive: true,
             activatedAt: Date(),
             appliedChanges: AppliedChanges(
-                functionKeysChanged: willChangeFunction,
-                disabledShortcutIDs: shortcutIDs,
-                mouseSpeedChanged: willChangeMouse,
-                previousMouseSpeed: capturedMouseSpeed ?? config.mouse.normalSpeed,
-                gesturesChanged: willChangeGestures,
-                previousGestureValues: willChangeGestures ? capturedGestureValues : nil
+                functionKeysChanged: config.functionKeysInGamingMode,
+                previousFunctionKeysEnabled: snapshot.previousFunctionKeysEnabled,
+                disabledShortcutIDs: snapshot.shortcutIDsToDisable,
+                previousShortcutStates: snapshot.previousShortcutStates,
+                mouseSpeedChanged: shouldApplyMouseBoost,
+                previousMouseSpeed: mouseBaselineSpeed,
+                gesturesChanged: !gesturesToDisable.isEmpty,
+                previousGestureValues: snapshot.previousGestureValues
             )
         )
         StateJournal.write(state)
+        trace.log("journal write complete")
 
-        // Apply changes
-        if willChangeFunction {
-            settingsManager.writeFunctionKeys(enabled: true)
-        }
-        if !shortcutIDs.isEmpty {
-            settingsManager.writeShortcuts(ids: shortcutIDs, enabled: false)
-        }
-        if willChangeGestures {
-            settingsManager.writeGestures(entries: gesturesToDisable, value: 0)
-        }
-        if willChangeFunction || !shortcutIDs.isEmpty || willChangeGestures {
-            settingsManager.applyKeyboardChanges()
+        let didApplyMouseBoost: Bool
+        if shouldApplyMouseBoost {
+            didApplyMouseBoost = applyMouseSpeed(
+                config.mouse.gamingSpeed,
+                operation: "mouse apply",
+                trace: trace
+            )
+            if !didApplyMouseBoost {
+                StateJournal.update { state in
+                    state.appliedChanges.mouseSpeedChanged = false
+                    state.appliedChanges.previousMouseSpeed = nil
+                }
+                trace.log("journal update complete")
+            }
+        } else {
+            didApplyMouseBoost = false
         }
 
-        if willChangeMouse {
-            settingsManager.applyMouseSpeed(config.mouse.gamingSpeed)
-        }
+        updateRuntimeMouseState(
+            isApplied: didApplyMouseBoost,
+            baselineSpeed: didApplyMouseBoost ? mouseBaselineSpeed : nil
+        )
 
-        isGamingMode = true
-        updateMenuBarIcon()
-        buildMenu()
-
-        // Notification
         var adjustments: [String] = []
-        if willChangeFunction || !shortcutIDs.isEmpty { adjustments.append("keyboard") }
-        if willChangeGestures { adjustments.append("gestures") }
-        if willChangeMouse { adjustments.append("mouse sensitivity") }
+        if config.functionKeysInGamingMode || !snapshot.shortcutIDsToDisable.isEmpty { adjustments.append("keyboard") }
+        if !gesturesToDisable.isEmpty { adjustments.append("gestures") }
+        if didApplyMouseBoost { adjustments.append("mouse sensitivity") }
         let body = adjustments.isEmpty
             ? "Gaming mode enabled"
             : adjustments.joined(separator: ", ").prefix(1).uppercased()
               + adjustments.joined(separator: ", ").dropFirst() + " adjusted"
-        showNotification(title: "Game Mode — Active", body: body)
+
+        enqueueNotification(title: "Game Mode — Active", body: body, trace: trace)
     }
 
-    private func deactivateGamingMode() {
-        guard isGamingMode else { return }
-
-        let config = configStore.config
+    private func performGameModeDeactivation(trace: TransitionTrace) {
         let state = StateJournal.load()
+        trace.log("journal load complete")
 
-        // Restore keyboard from journal (truth of what was actually changed)
-        if state.appliedChanges.functionKeysChanged {
-            settingsManager.writeFunctionKeys(enabled: false)
-        }
-        if !state.appliedChanges.disabledShortcutIDs.isEmpty {
-            settingsManager.writeShortcuts(
-                ids: state.appliedChanges.disabledShortcutIDs, enabled: true
+        // --- Keyboard settings (fn keys + shortcuts + gestures) ---
+        trace.log("keyboard restore start")
+        settingsManager.restoreKeyboardSettings(from: state.appliedChanges)
+        trace.log("keyboard restore complete")
+
+        let didVerifyFunctionKeys = !state.appliedChanges.functionKeysChanged || verifyFunctionKeys(
+            expected: state.appliedChanges.previousFunctionKeysEnabled ?? false,
+            operation: "deactivation",
+            trace: trace
+        )
+
+        if restoreMouseState(from: state, trace: trace) {
+            StateJournal.clear()
+            trace.log("journal clear complete")
+            let body = didVerifyFunctionKeys
+                ? "All settings restored"
+                : "Mouse restored, but standard function keys could not be confirmed"
+            enqueueNotification(title: "Game Mode — Deactivated", body: body, trace: trace)
+        } else {
+            enqueueNotification(
+                title: "Game Mode — Deactivated",
+                body: "Keyboard settings restored, but mouse restore will retry from recovery state",
+                trace: trace
             )
         }
-        // Restore gestures
-        if state.appliedChanges.gesturesChanged,
-           let previousValues = state.appliedChanges.previousGestureValues {
-            let gestureEntries = configStore.config.gestures.filter { previousValues.keys.contains($0.id) }
-            settingsManager.restoreGestures(capturedValues: previousValues, entries: gestureEntries)
+    }
+
+    private func captureMouseBaselineSpeed(trace: TransitionTrace) -> Double? {
+        guard let liveSpeed = settingsManager.readCurrentMouseSpeed() else {
+            trace.log("failed to capture live mouse speed; skipping boost")
+            return nil
+        }
+        trace.log("captured live mouse speed \(String(format: "%.2f", liveSpeed))")
+        return liveSpeed
+    }
+
+    private func resolvedMouseRestoreSpeed(from state: GameModeState) -> Double? {
+        state.appliedChanges.previousMouseSpeed
+    }
+
+    @discardableResult
+    private func verifyFunctionKeys(
+        expected: Bool,
+        operation: String,
+        trace: TransitionTrace? = nil
+    ) -> Bool {
+        let verified = settingsManager.verifyFunctionKeysEnabled(expected)
+        if verified {
+            trace?.log("function key \(operation) verified expected=\(expected)")
+        } else {
+            let actual = settingsManager.readFunctionKeysEnabled()
+            trace?.log(
+                "function key \(operation) verification failed expected=\(expected) actual=\(actual)"
+            )
+        }
+        return verified
+    }
+
+    private func currentConfigSnapshot() -> GameModeConfig {
+        if Thread.isMainThread {
+            return configStore.config
+        }
+        return DispatchQueue.main.sync { configStore.config }
+    }
+
+    private func applyVisibleGamingModeState(_ active: Bool) {
+        let update = { [weak self] in
+            guard let self else { return }
+            self.isGamingMode = active
+            self.updateMenuBarIcon()
+            self.buildMenu()
         }
 
-        if state.appliedChanges.functionKeysChanged
-            || !state.appliedChanges.disabledShortcutIDs.isEmpty
-            || state.appliedChanges.gesturesChanged {
-            settingsManager.applyKeyboardChanges()
+        if Thread.isMainThread {
+            update()
+        } else {
+            DispatchQueue.main.async(execute: update)
+        }
+    }
+
+    private func updateRuntimeMouseState(isApplied: Bool, baselineSpeed: Double?) {
+        let update = { [weak self] in
+            guard let self else { return }
+            self.configStore.isMouseBoostApplied = isApplied
+            self.configStore.sessionMouseBaselineSpeed = baselineSpeed
+            self.buildMenu()
         }
 
-        // Restore mouse
-        if state.appliedChanges.mouseSpeedChanged {
-            let restoreSpeed: Double
-            if config.mouse.autoCapture,
-               let captured = state.appliedChanges.previousMouseSpeed {
-                restoreSpeed = captured
-            } else {
-                restoreSpeed = config.mouse.normalSpeed
+        if Thread.isMainThread {
+            update()
+        } else {
+            DispatchQueue.main.async(execute: update)
+        }
+    }
+
+    private func handleMouseSubsystemDisabled() {
+        Self.settingsQueue.async { [weak self] in
+            guard let self else { return }
+
+            let trace = self.nextTrace(named: "MouseDisable")
+            trace.log("mouse subsystem disabled")
+
+            let state = StateJournal.load()
+            let mouseRestored = self.restoreMouseState(from: state, trace: trace)
+
+            if state.isActive && mouseRestored {
+                StateJournal.update { state in
+                    state.appliedChanges.mouseSpeedChanged = false
+                    state.appliedChanges.previousMouseSpeed = nil
+                }
+                trace.log("journal update complete")
             }
-            settingsManager.applyMouseSpeed(restoreSpeed)
         }
+    }
 
-        // Clear journal
-        StateJournal.clear()
-
-        isGamingMode = false
-        updateMenuBarIcon()
-        buildMenu()
-
-        showNotification(title: "Game Mode — Deactivated", body: "All settings restored")
+    private func enqueueNotification(title: String, body: String, trace: TransitionTrace? = nil) {
+        trace?.log("notification enqueue")
+        DispatchQueue.main.async { [weak self] in
+            self?.showNotification(title: title, body: body)
+        }
     }
 
     // MARK: - Actions
 
-    @objc private func toggleGameMode() {
-        if isGamingMode {
-            deactivateGamingMode()
-        } else {
-            activateGamingMode()
+    @objc private func toggleGameModeMenuAction() {
+        requestGameModeTransition(to: !isGamingMode, source: "menu")
+    }
+
+    private func toggleGameModeHotkey() {
+        requestGameModeTransition(to: !isGamingMode, source: "hotkey")
+    }
+
+    @objc private func toggleMouseBoostMenuAction() {
+        toggleMouseBoost(source: "menu")
+    }
+
+    private func toggleMouseBoostHotkey() {
+        toggleMouseBoost(source: "hotkey")
+    }
+
+    private func toggleMouseBoost(source: String) {
+        guard configStore.config.mouse.isEnabled else {
+            print("[MouseBoost] Ignored \(source) toggle because mouse management is disabled")
+            return
+        }
+        guard isGamingMode else {
+            print("[MouseBoost] Ignored \(source) toggle because gaming mode is inactive")
+            return
+        }
+
+        let shouldEnable = !configStore.isMouseBoostApplied
+
+        Self.settingsQueue.async { [weak self] in
+            self?.setActiveMouseBoost(source: source, enabled: shouldEnable)
         }
     }
 
-    @objc private func toggleMouseBoost() {
-        configStore.config.mouse.isMouseBoostEnabled.toggle()
-        let enabled = configStore.config.mouse.isMouseBoostEnabled
+    private func setActiveMouseBoost(source: String, enabled: Bool) {
+        let trace = nextTrace(named: "MouseBoost")
+        trace.log("request source=\(source) enabled=\(enabled)")
 
-        if isGamingMode {
-            // Apply immediately
-            if enabled {
-                settingsManager.applyMouseSpeed(configStore.config.mouse.gamingSpeed)
-            } else if let captured = configStore.config.mouse.capturedSystemSpeed {
-                settingsManager.applyMouseSpeed(captured)
-            } else {
-                settingsManager.applyMouseSpeed(configStore.config.mouse.normalSpeed)
-            }
-            let title = enabled ? "Mouse Sensitivity — Gaming" : "Mouse Sensitivity — Normal"
-            let body = enabled ? "Tracking speed set to maximum" : "Tracking speed restored"
-            showNotification(title: title, body: body)
-        } else {
-            // Save only, don't apply
-            showNotification(
-                title: "Mouse Sensitivity — Saved",
-                body: "Will apply when game mode activates"
-            )
+        let config = currentConfigSnapshot()
+        guard config.mouse.isEnabled else {
+            trace.log("ignored because mouse management is disabled")
+            return
         }
 
-        buildMenu()
+        let isGameModeApplied = transitionStateQueue.sync { appliedGameModeState }
+        guard isGameModeApplied else {
+            trace.log("ignored because gaming mode is inactive")
+            return
+        }
+
+        let state = StateJournal.load()
+        trace.log("journal load complete")
+
+        if enabled {
+            guard !state.appliedChanges.mouseSpeedChanged else {
+                updateRuntimeMouseState(
+                    isApplied: true,
+                    baselineSpeed: state.appliedChanges.previousMouseSpeed
+                )
+                enqueueNotification(
+                    title: "Mouse Sensitivity — Gaming",
+                    body: "Tracking speed is already boosted",
+                    trace: trace
+                )
+                return
+            }
+
+            guard let baselineSpeed = captureMouseBaselineSpeed(trace: trace) else {
+                enqueueNotification(
+                    title: "Mouse Sensitivity — Unchanged",
+                    body: "Could not detect the current mouse speed, so boost was not applied",
+                    trace: trace
+                )
+                return
+            }
+            StateJournal.update { state in
+                state.isActive = true
+                state.appliedChanges.mouseSpeedChanged = true
+                state.appliedChanges.previousMouseSpeed = baselineSpeed
+            }
+            trace.log("journal update complete")
+
+            guard applyMouseSpeed(
+                config.mouse.gamingSpeed,
+                operation: "mouse apply",
+                trace: trace
+            ) else {
+                StateJournal.update { state in
+                    state.appliedChanges.mouseSpeedChanged = false
+                    state.appliedChanges.previousMouseSpeed = nil
+                }
+                trace.log("journal update complete")
+                updateRuntimeMouseState(isApplied: false, baselineSpeed: nil)
+                enqueueNotification(
+                    title: "Mouse Sensitivity — Unchanged",
+                    body: "Could not apply the configured mouse speed",
+                    trace: trace
+                )
+                return
+            }
+
+            updateRuntimeMouseState(isApplied: true, baselineSpeed: baselineSpeed)
+            enqueueNotification(
+                title: "Mouse Sensitivity — Gaming",
+                body: "Tracking speed set to maximum",
+                trace: trace
+            )
+            return
+        }
+
+        guard state.appliedChanges.mouseSpeedChanged,
+              let restoreSpeed = resolvedMouseRestoreSpeed(from: state) else {
+            updateRuntimeMouseState(isApplied: false, baselineSpeed: nil)
+            enqueueNotification(
+                title: "Mouse Sensitivity — Normal",
+                body: "Tracking speed already matches your normal setting",
+                trace: trace
+            )
+            return
+        }
+
+        guard applyMouseSpeed(restoreSpeed, operation: "mouse restore", trace: trace) else {
+            enqueueNotification(
+                title: "Mouse Sensitivity — Unchanged",
+                body: "Could not restore the baseline mouse speed",
+                trace: trace
+            )
+            return
+        }
+
+        StateJournal.update { state in
+            state.appliedChanges.mouseSpeedChanged = false
+            state.appliedChanges.previousMouseSpeed = nil
+        }
+        trace.log("journal update complete")
+        updateRuntimeMouseState(isApplied: false, baselineSpeed: nil)
+        enqueueNotification(
+            title: "Mouse Sensitivity — Normal",
+            body: "Tracking speed restored",
+            trace: trace
+        )
     }
 
     @objc private func openSettings() {
@@ -373,7 +657,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let hostingView = NSHostingController(
             rootView: SettingsWindow(
                 configStore: configStore,
+                onApplyConfiguredMouseSpeed: { [weak self] in self?.applyConfiguredMouseSpeedLive() },
                 onForceRestore: { [weak self] in self?.forceRestoreAllSettings() },
+                onResetAllSavedData: { [weak self] in self?.resetAllSavedData() },
                 onHotkeysChanged: { [weak self] in self?.registerHotkeys() }
             )
         )
@@ -436,7 +722,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func quitApp() {
         if isGamingMode && configStore.config.system.restoreOnShutdown {
-            deactivateGamingMode()
+            deactivateSync()
         }
         NSApp.terminate(nil)
     }
@@ -445,96 +731,215 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func systemWillPowerOff(_ notification: Notification) {
         if isGamingMode && configStore.config.system.restoreOnShutdown {
-            deactivateGamingMode()
+            deactivateSync()
         }
     }
 
     @objc private func appWillTerminate(_ notification: Notification) {
         if isGamingMode && configStore.config.system.restoreOnShutdown {
-            deactivateGamingMode()
+            deactivateSync()
+        }
+    }
+
+    /// Synchronous deactivation for shutdown/quit paths where the process is about to exit.
+    private func deactivateSync() {
+        let state = StateJournal.load()
+
+        settingsManager.restoreKeyboardSettings(from: state.appliedChanges)
+
+        if restoreMouseState(from: state) {
+            StateJournal.clear()
+            isGamingMode = false
+            updateRuntimeMouseState(isApplied: false, baselineSpeed: nil)
+            transitionStateQueue.sync {
+                targetGameModeState = false
+                appliedGameModeState = false
+            }
         }
     }
 
     // MARK: - Crash Recovery
 
     private func recoverIfNeeded() {
-        let state = StateJournal.load()
-        guard state.isActive else { return }
+        let settingsManager = self.settingsManager
 
-        print("[AppDelegate] Recovering from stale gaming state...")
-        let changes = state.appliedChanges
+        Self.settingsQueue.async {
+            let state = StateJournal.load()
+            guard state.isActive else { return }
+            print("[AppDelegate] Recovering from stale gaming state...")
 
-        if changes.functionKeysChanged {
-            settingsManager.writeFunctionKeys(enabled: false)
-        }
-        if !changes.disabledShortcutIDs.isEmpty {
-            settingsManager.writeShortcuts(ids: changes.disabledShortcutIDs, enabled: true)
-        }
-        if changes.gesturesChanged, let previousValues = changes.previousGestureValues {
-            let gestureEntries = configStore.config.gestures.filter { previousValues.keys.contains($0.id) }
-            settingsManager.restoreGestures(capturedValues: previousValues, entries: gestureEntries)
-        }
-        if changes.functionKeysChanged || !changes.disabledShortcutIDs.isEmpty || changes.gesturesChanged {
-            settingsManager.applyKeyboardChanges()
-        }
-        if changes.mouseSpeedChanged, let previousSpeed = changes.previousMouseSpeed {
-            settingsManager.applyMouseSpeed(previousSpeed)
-        }
+            settingsManager.restoreKeyboardSettings(from: state.appliedChanges)
 
-        StateJournal.clear()
-        showNotification(
-            title: "GameMode — Settings Recovered",
-            body: "System settings restored after unexpected shutdown"
-        )
+            if self.restoreMouseState(from: state) {
+                StateJournal.clear()
+                self.updateRuntimeMouseState(isApplied: false, baselineSpeed: nil)
+                self.transitionStateQueue.sync {
+                    self.targetGameModeState = false
+                    self.appliedGameModeState = false
+                }
+            }
+
+            DispatchQueue.main.async { [weak self] in
+                self?.showNotification(
+                    title: "GameMode — Settings Recovered",
+                    body: "System settings restored after unexpected shutdown"
+                )
+            }
+        }
     }
 
     // MARK: - Force Restore (called from SystemSettingsView)
 
     func forceRestoreAllSettings() {
-        settingsManager.writeFunctionKeys(enabled: false)
-
-        let allShortcutIDs = configStore.config.shortcuts.map { $0.id }
-        settingsManager.writeShortcuts(ids: allShortcutIDs, enabled: true)
-
-        // Restore gestures from journal if available, otherwise re-enable all
-        let journalState = StateJournal.load()
-        if let previousValues = journalState.appliedChanges.previousGestureValues {
-            let gestureEntries = configStore.config.gestures.filter { previousValues.keys.contains($0.id) }
-            settingsManager.restoreGestures(capturedValues: previousValues, entries: gestureEntries)
-        } else {
-            // Best effort: re-enable all gestures that were set to be disabled
-            let gesturesToRestore = configStore.config.gestures.filter { $0.disableInGamingMode }
-            if !gesturesToRestore.isEmpty {
-                settingsManager.writeGestures(entries: gesturesToRestore, value: 2)
-            }
-        }
-
-        settingsManager.applyKeyboardChanges()
-
-        if let captured = configStore.config.mouse.capturedSystemSpeed {
-            settingsManager.applyMouseSpeed(captured)
-        } else {
-            settingsManager.applyMouseSpeed(configStore.config.mouse.normalSpeed)
-        }
-
+        // Update UI immediately
         isGamingMode = false
-        StateJournal.clear()
         updateMenuBarIcon()
         buildMenu()
 
-        showNotification(
-            title: "GameMode — Force Restored",
-            body: "All settings reverted to pre-gaming values"
-        )
+        let settingsManager = self.settingsManager
+
+        Self.settingsQueue.async {
+            let journalState = StateJournal.load()
+
+            settingsManager.restoreKeyboardSettings(from: journalState.appliedChanges)
+
+            if self.restoreMouseState(from: journalState) {
+                StateJournal.clear()
+                self.updateRuntimeMouseState(isApplied: false, baselineSpeed: nil)
+                self.transitionStateQueue.sync {
+                    self.targetGameModeState = false
+                    self.appliedGameModeState = false
+                }
+            }
+
+            DispatchQueue.main.async { [weak self] in
+                self?.showNotification(
+                    title: "GameMode — Force Restored",
+                    body: "All settings reverted to pre-gaming values"
+                )
+            }
+        }
+    }
+
+    func resetAllSavedData() {
+        Self.settingsQueue.async { [weak self] in
+            guard let self else { return }
+
+            var restoredJournal = true
+            if self.isGamingMode || StateJournal.hasDirtyState {
+                restoredJournal = self.restoreSettingsFromJournalSync()
+            }
+
+            if restoredJournal {
+                StateJournal.clear()
+            }
+
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.configStore.resetAllSavedData()
+                self.buildMenu()
+                self.registerHotkeys()
+                self.showNotification(
+                    title: "GameMode — Saved Data Reset",
+                    body: "All saved configuration and recovery data were cleared"
+                )
+            }
+        }
+    }
+
+    @discardableResult
+    private func restoreSettingsFromJournalSync() -> Bool {
+        let state = StateJournal.load()
+        guard state.isActive else { return true }
+
+        settingsManager.restoreKeyboardSettings(from: state.appliedChanges)
+
+        guard restoreMouseState(from: state) else {
+            return false
+        }
+
+        StateJournal.clear()
+        isGamingMode = false
+        updateRuntimeMouseState(isApplied: false, baselineSpeed: nil)
+        transitionStateQueue.sync {
+            targetGameModeState = false
+            appliedGameModeState = false
+        }
+        return true
     }
 
     // MARK: - Global Hotkeys
 
+    private func applyConfiguredMouseSpeedLive() {
+        Self.settingsQueue.async { [weak self] in
+            guard let self else { return }
+
+            let trace = self.nextTrace(named: "MouseApply")
+            let config = self.currentConfigSnapshot()
+            guard config.mouse.isEnabled else {
+                trace.log("ignored because mouse management is disabled")
+                return
+            }
+
+            guard self.applyMouseSpeed(
+                config.mouse.gamingSpeed,
+                operation: "mouse apply",
+                trace: trace
+            ) else {
+                self.enqueueNotification(
+                    title: "Mouse Sensitivity — Unchanged",
+                    body: "Could not apply the configured mouse speed",
+                    trace: trace
+                )
+                return
+            }
+
+            self.enqueueNotification(
+                title: "Mouse Sensitivity — Applied",
+                body: "Configured gaming speed applied live without persistence",
+                trace: trace
+            )
+        }
+    }
+
+    @discardableResult
+    private func applyMouseSpeed(
+        _ speed: Double,
+        operation: String,
+        trace: TransitionTrace? = nil
+    ) -> Bool {
+        trace?.log("\(operation) start")
+        let applied = settingsManager.applyMouseSpeed(speed)
+        trace?.log(applied ? "\(operation) complete" : "\(operation) failed")
+        return applied
+    }
+
+    @discardableResult
+    private func restoreMouseState(from state: GameModeState, trace: TransitionTrace? = nil) -> Bool {
+        guard state.appliedChanges.mouseSpeedChanged,
+              let restoreSpeed = resolvedMouseRestoreSpeed(from: state) else {
+            updateRuntimeMouseState(isApplied: false, baselineSpeed: nil)
+            trace?.log("mouse restore skipped")
+            return true
+        }
+
+        guard applyMouseSpeed(restoreSpeed, operation: "mouse restore", trace: trace) else {
+            updateRuntimeMouseState(
+                isApplied: true,
+                baselineSpeed: state.appliedChanges.previousMouseSpeed
+            )
+            return false
+        }
+
+        updateRuntimeMouseState(isApplied: false, baselineSpeed: nil)
+        return true
+    }
+
     private func registerHotkeys() {
         let hotkeys = configStore.config.hotkeys
         hotkeyManager.register(hotkeys: hotkeys, handlers: [
-            "toggleGameMode": { [weak self] in self?.toggleGameMode() },
-            "toggleMouseBoost": { [weak self] in self?.toggleMouseBoost() },
+            "toggleGameMode": { [weak self] in self?.toggleGameModeHotkey() },
+            "toggleMouseBoost": { [weak self] in self?.toggleMouseBoostHotkey() },
             "toggleInputSource": { [weak self] in self?.toggleInputSource() },
         ])
     }

@@ -10,8 +10,7 @@ import SwiftUI
 
 struct MouseSettingsView: View {
     @ObservedObject var configStore: ConfigStore
-
-    private let settingsManager = SettingsManager()
+    var onApplyConfiguredMouseSpeed: (() -> Void)?
 
     var body: some View {
         Form {
@@ -22,7 +21,7 @@ struct MouseSettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Section("Speed Settings") {
+            Section {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
                         Text("Gaming Speed")
@@ -34,42 +33,35 @@ struct MouseSettingsView: View {
                     Slider(value: $configStore.config.mouse.gamingSpeed, in: 0...5, step: 0.1)
                 }
 
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text("Normal Speed")
-                        Spacer()
-                        Text(String(format: "%.1f", configStore.config.mouse.normalSpeed))
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                    }
-                    Slider(value: $configStore.config.mouse.normalSpeed, in: 0...5, step: 0.1)
+                Button("Apply Configured Speed Live") {
+                    onApplyConfiguredMouseSpeed?()
                 }
+            } header: {
+                Text("Speed Settings")
+            }
+            footer: {
+                Text("Applies the configured gaming speed immediately through HIDSystem without writing a persistent mouse preference.")
+                    .foregroundStyle(.secondary)
             }
             .disabled(!configStore.config.mouse.isEnabled)
 
             Section {
-                Toggle("Auto-capture current speed before gaming", isOn: $configStore.config.mouse.autoCapture)
+                Toggle(
+                    "Enable mouse boost automatically when Game Mode activates",
+                    isOn: $configStore.config.mouse.isMouseBoostEnabled
+                )
 
-                HStack {
-                    if let captured = configStore.config.mouse.capturedSystemSpeed {
-                        Text("Last captured speed: \(String(format: "%.1f", captured))")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Spacer()
-
-                    Button("Read Current Speed") {
-                        if let speed = settingsManager.readCurrentMouseSpeed() {
-                            configStore.config.mouse.capturedSystemSpeed = speed
-                            configStore.config.mouse.normalSpeed = speed
-                        }
-                    }
+                if let baseline = configStore.sessionMouseBaselineSpeed {
+                    Text("Last detected baseline speed: \(String(format: "%.1f", baseline))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("Baseline speed is detected automatically when mouse boost turns on.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-            } header: {
-                Text("Auto-Capture")
             } footer: {
-                Text("Reads your live mouse speed each time gaming mode activates and restores that exact value when it deactivates.")
+                Text("Mouse boost can only become active while Game Mode is active. The app always detects your current mouse speed right before applying boost.")
                     .foregroundStyle(.secondary)
             }
             .disabled(!configStore.config.mouse.isEnabled)

@@ -22,6 +22,10 @@ class ConfigStore: ObservableObject {
     /// Runtime-only state (not persisted). Observable by SwiftUI views.
     @Published var isGamingMode: Bool = false
 
+    /// Runtime-only state for the active session. Does not trigger config persistence.
+    @Published var isMouseBoostApplied: Bool = false
+    @Published var sessionMouseBaselineSpeed: Double?
+
     /// Live accessibility permission status. Polled while settings window is open.
     @Published var isAccessibilityGranted: Bool = HotkeyManager.isAccessibilityGranted
 
@@ -46,6 +50,14 @@ class ConfigStore: ObservableObject {
     func save() {
         guard let data = try? JSONEncoder().encode(config) else { return }
         defaults.set(data, forKey: key)
+    }
+
+    func resetAllSavedData() {
+        defaults.removeObject(forKey: key)
+        config = GameModeConfig.defaults
+        isGamingMode = false
+        isMouseBoostApplied = false
+        sessionMouseBaselineSpeed = nil
     }
 
     /// True if this is the first launch (no saved config found).

@@ -62,14 +62,22 @@ struct GameModeConfig: Codable {
 struct MouseConfig: Codable {
     /// Master switch — when false, mouse is never touched and menu toggle is hidden.
     var isEnabled: Bool = true
-    var gamingSpeed: Double = 3.0
-    var normalSpeed: Double = 0.5
-    /// Speed read from system before gaming mode activation.
-    var capturedSystemSpeed: Double?
-    /// If true, reads live speed before each activation and restores that exact value.
-    var autoCapture: Bool = true
-    /// Whether the user wants gaming mouse speed (independent of game mode state).
+    var gamingSpeed: Double = 0.5
+    /// Whether gaming mode should auto-enable mouse boost on activation.
     var isMouseBoostEnabled: Bool = false
+
+    init(isEnabled: Bool = true, gamingSpeed: Double = 0.5, isMouseBoostEnabled: Bool = false) {
+        self.isEnabled = isEnabled
+        self.gamingSpeed = gamingSpeed
+        self.isMouseBoostEnabled = isMouseBoostEnabled
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
+        gamingSpeed = try container.decodeIfPresent(Double.self, forKey: .gamingSpeed) ?? 0.5
+        isMouseBoostEnabled = try container.decodeIfPresent(Bool.self, forKey: .isMouseBoostEnabled) ?? false
+    }
 }
 
 // MARK: - System Safety
