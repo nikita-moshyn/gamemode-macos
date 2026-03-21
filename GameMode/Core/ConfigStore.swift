@@ -27,17 +27,24 @@ class ConfigStore: ObservableObject {
     @Published var sessionMouseBaselineSpeed: Double?
 
     /// Live accessibility permission status. Polled while settings window is open.
-    @Published var isAccessibilityGranted: Bool = HotkeyManager.isAccessibilityGranted
+    @Published var isAccessibilityGranted: Bool = false
 
     private var accessibilityTimer: Timer?
 
-    private let key = "GameModeConfig_v2"
-    private let defaults = UserDefaults.standard
+    private let key: String
+    private let defaults: UserDefaults
 
     // MARK: - Init
 
-    init() {
-        if let data = UserDefaults.standard.data(forKey: key),
+    convenience init() {
+        self.init(defaults: .standard)
+        isAccessibilityGranted = HotkeyManager.isAccessibilityGranted
+    }
+
+    init(defaults: UserDefaults, key: String = "GameModeConfig_v2") {
+        self.defaults = defaults
+        self.key = key
+        if let data = defaults.data(forKey: key),
            let decoded = try? JSONDecoder().decode(GameModeConfig.self, from: data) {
             self.config = decoded
         } else {

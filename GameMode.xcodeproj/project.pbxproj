@@ -33,7 +33,24 @@
 		BB000100000000000000001B /* GeneralSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000200000000000000001B /* GeneralSettingsView.swift */; };
 		BB000100000000000000001C /* AboutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000200000000000000001C /* AboutView.swift */; };
 		BB000100000000000000001D /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = BB000200000000000000001D /* Sparkle */; };
+		CC0001000000000000000001 /* MonitoredAppTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0002000000000000000001 /* MonitoredAppTests.swift */; };
+		CC0001000000000000000002 /* GameModeConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0002000000000000000002 /* GameModeConfigTests.swift */; };
+		CC0001000000000000000003 /* AppHotkeyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0002000000000000000003 /* AppHotkeyTests.swift */; };
+		CC0001000000000000000004 /* KeyCodeMapTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0002000000000000000004 /* KeyCodeMapTests.swift */; };
+		CC0001000000000000000005 /* SymbolicHotkeysTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0002000000000000000005 /* SymbolicHotkeysTests.swift */; };
+		CC0001000000000000000006 /* ConfigStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0002000000000000000006 /* ConfigStoreTests.swift */; };
+		CC0001000000000000000007 /* StateJournalTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0002000000000000000007 /* StateJournalTests.swift */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		CC000C000000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = BB0008000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = BB0005000000000000000001;
+			remoteInfo = GameMode;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		BB0002000000000000000001 /* GameModeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameModeApp.swift; sourceTree = "<group>"; };
@@ -64,6 +81,14 @@
 		BB000200000000000000001A /* HotkeysSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeysSettingsView.swift; sourceTree = "<group>"; };
 		BB000200000000000000001B /* GeneralSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeneralSettingsView.swift; sourceTree = "<group>"; };
 		BB000200000000000000001C /* AboutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutView.swift; sourceTree = "<group>"; };
+		CC0002000000000000000001 /* MonitoredAppTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitoredAppTests.swift; sourceTree = "<group>"; };
+		CC0002000000000000000002 /* GameModeConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameModeConfigTests.swift; sourceTree = "<group>"; };
+		CC0002000000000000000003 /* AppHotkeyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppHotkeyTests.swift; sourceTree = "<group>"; };
+		CC0002000000000000000004 /* KeyCodeMapTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyCodeMapTests.swift; sourceTree = "<group>"; };
+		CC0002000000000000000005 /* SymbolicHotkeysTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SymbolicHotkeysTests.swift; sourceTree = "<group>"; };
+		CC0002000000000000000006 /* ConfigStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigStoreTests.swift; sourceTree = "<group>"; };
+		CC0002000000000000000007 /* StateJournalTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StateJournalTests.swift; sourceTree = "<group>"; };
+		CC0002000000000000000008 /* GameModeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = GameModeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -75,6 +100,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		CC0003000000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -82,6 +114,7 @@
 			isa = PBXGroup;
 			children = (
 				BB0004000000000000000002 /* GameMode */,
+				CC0004000000000000000001 /* GameModeTests */,
 				BB0004000000000000000003 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -103,6 +136,7 @@
 			isa = PBXGroup;
 			children = (
 				BB0002000000000000000014 /* GameMode.app */,
+				CC0002000000000000000008 /* GameModeTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -160,6 +194,20 @@
 			path = Views;
 			sourceTree = "<group>";
 		};
+		CC0004000000000000000001 /* GameModeTests */ = {
+			isa = PBXGroup;
+			children = (
+				CC0002000000000000000001 /* MonitoredAppTests.swift */,
+				CC0002000000000000000002 /* GameModeConfigTests.swift */,
+				CC0002000000000000000003 /* AppHotkeyTests.swift */,
+				CC0002000000000000000004 /* KeyCodeMapTests.swift */,
+				CC0002000000000000000005 /* SymbolicHotkeysTests.swift */,
+				CC0002000000000000000006 /* ConfigStoreTests.swift */,
+				CC0002000000000000000007 /* StateJournalTests.swift */,
+			);
+			path = GameModeTests;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -181,6 +229,23 @@
 			productName = GameMode;
 			productReference = BB0002000000000000000014 /* GameMode.app */;
 			productType = "com.apple.product-type.application";
+		};
+		CC0005000000000000000001 /* GameModeTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CC0007000000000000000001 /* Build configuration list for PBXNativeTarget "GameModeTests" */;
+			buildPhases = (
+				CC0006000000000000000001 /* Sources */,
+				CC0003000000000000000001 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				CC000B000000000000000001 /* PBXTargetDependency */,
+			);
+			name = GameModeTests;
+			productName = GameModeTests;
+			productReference = CC0002000000000000000008 /* GameModeTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
 		};
 /* End PBXNativeTarget section */
 
@@ -209,6 +274,7 @@
 			projectRoot = "";
 			targets = (
 				BB0005000000000000000001 /* GameMode */,
+				CC0005000000000000000001 /* GameModeTests */,
 			);
 		};
 /* End PBXProject section */
@@ -246,7 +312,29 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		CC0006000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CC0001000000000000000001 /* MonitoredAppTests.swift in Sources */,
+				CC0001000000000000000002 /* GameModeConfigTests.swift in Sources */,
+				CC0001000000000000000003 /* AppHotkeyTests.swift in Sources */,
+				CC0001000000000000000004 /* KeyCodeMapTests.swift in Sources */,
+				CC0001000000000000000005 /* SymbolicHotkeysTests.swift in Sources */,
+				CC0001000000000000000006 /* ConfigStoreTests.swift in Sources */,
+				CC0001000000000000000007 /* StateJournalTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		CC000B000000000000000001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = BB0005000000000000000001 /* GameMode */;
+			targetProxy = CC000C000000000000000001 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		BB0009000000000000000001 /* Debug */ = {
@@ -404,6 +492,42 @@
 			};
 			name = Release;
 		};
+		CC0009000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = VJPQWNYP29;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.moshyn.nikita.GameModeTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/GameMode.app/Contents/MacOS/GameMode";
+			};
+			name = Debug;
+		};
+		CC0009000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = VJPQWNYP29;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.moshyn.nikita.GameModeTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/GameMode.app/Contents/MacOS/GameMode";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -421,6 +545,15 @@
 			buildConfigurations = (
 				BB0009000000000000000003 /* Debug */,
 				BB0009000000000000000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		CC0007000000000000000001 /* Build configuration list for PBXNativeTarget "GameModeTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CC0009000000000000000001 /* Debug */,
+				CC0009000000000000000002 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

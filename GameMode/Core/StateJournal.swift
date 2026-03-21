@@ -55,17 +55,17 @@ struct AppliedChanges: Codable {
         mouseSpeedChanged = try container.decode(Bool.self, forKey: .mouseSpeedChanged)
         previousMouseSpeed = try container.decodeIfPresent(Double.self, forKey: .previousMouseSpeed)
         gesturesChanged = try container.decodeIfPresent(Bool.self, forKey: .gesturesChanged) ?? false
-        let nestedOptionalValues = try container.decodeIfPresent(
+        let nestedOptionalValues = try? container.decodeIfPresent(
             GesturePreferenceValues.self,
             forKey: .previousGestureValues
         )
-        let nestedValues = try container.decodeIfPresent(
+        let nestedValues = try? container.decodeIfPresent(
             [String: [String: Int]].self,
             forKey: .previousGestureValues
         )?.mapValues { domainValues in
             domainValues.mapValues { Optional($0) }
         }
-        let legacyValues = try container.decodeIfPresent(
+        let legacyValues = try? container.decodeIfPresent(
             [String: Int].self,
             forKey: .previousGestureValues
         )?.mapValues { ["legacy": Optional($0)] }
@@ -100,19 +100,24 @@ struct AppliedChanges: Codable {
 /// File: `~/Library/Application Support/GameMode/state.json`
 class StateJournal {
 
-    private static let directory: URL = {
-        let appSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory, in: .userDomainMask
-        ).first!
-        return appSupport.appendingPathComponent("GameMode")
-    }()
+    static let shared = StateJournal()
 
-    private static let fileURL: URL = {
-        directory.appendingPathComponent("state.json")
-    }()
+    let directory: URL
+    var fileURL: URL { directory.appendingPathComponent("state.json") }
+
+    init(directory: URL? = nil) {
+        self.directory = directory ?? {
+            let appSupport = FileManager.default.urls(
+                for: .applicationSupportDirectory, in: .userDomainMask
+            ).first!
+            return appSupport.appendingPathComponent("GameMode")
+        }()
+    }
+
+    // MARK: - Instance methods
 
     /// Write state atomically. MUST complete before settings are modified.
-    static func write(_ state: GameModeState) {
+    func write(_ state: GameModeState) {
         do {
             try FileManager.default.createDirectory(
                 at: directory, withIntermediateDirectories: true
@@ -127,14 +132,14 @@ class StateJournal {
 
     /// Load-mutate-write helper for changes that happen mid-session
     /// (for example, mouse boost toggles while game mode remains active).
-    static func update(_ mutate: (inout GameModeState) -> Void) {
+    func update(_ mutate: (inout GameModeState) -> Void) {
         var state = load()
         mutate(&state)
         write(state)
     }
 
     /// Load state. Returns inactive if file is missing or corrupt.
-    static func load() -> GameModeState {
+    func load() -> GameModeState {
         guard let data = try? Data(contentsOf: fileURL),
               let state = try? JSONDecoder().decode(GameModeState.self, from: data)
         else {
@@ -144,13 +149,21 @@ class StateJournal {
     }
 
     /// Clear journal after successful restore.
-    static func clear() {
+    func clear() {
         try? FileManager.default.removeItem(at: fileURL)
         print("[StateJournal] Cleared")
     }
 
     /// Check if there's a dirty state (gaming mode was active when app died).
-    static var hasDirtyState: Bool {
+    var hasDirtyState: Bool {
         load().isActive
     }
+
+    // MARK: - Static convenience (preserves existing call sites)
+
+    static func write(_ state: GameModeState) { shared.write(state) }
+    static func update(_ mutate: (inout GameModeState) -> Void) { shared.update(mutate) }
+    static func load() -> GameModeState { shared.load() }
+    static func clear() { shared.clear() }
+    static var hasDirtyState: Bool { shared.hasDirtyState }
 }
