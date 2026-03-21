@@ -77,10 +77,12 @@ jobs:
             -derivedDataPath build/DerivedData \
             MARKETING_VERSION="$BUILD_VERSION" \
             CURRENT_PROJECT_VERSION="$BUILD_VERSION" \
+            OTHER_CODE_SIGN_FLAGS="--timestamp" \
+            CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
             build
 
-      # ── Package the signed app ──
-      - name: Package app
+      # ── Re-sign nested Sparkle binaries with Developer ID + timestamp ──
+      - name: Package and sign app
         id: package
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -94,10 +96,31 @@ jobs:
 
           cp -R "$APP_PATH" build/GameMode.app
 
+          # Find the signing identity
+          IDENTITY=$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
+          echo "Signing with: $IDENTITY"
+
+          # Re-sign all nested Sparkle binaries with Developer ID + secure timestamp
+          find build/GameMode.app/Contents/Frameworks -type d \( -name "*.app" -o -name "*.xpc" \) | while read -r nested; do
+            echo "  Signing nested: $nested"
+            codesign --force --sign "$IDENTITY" --timestamp --options runtime "$nested"
+          done
+
+          # Sign the Sparkle framework itself
+          echo "  Signing Sparkle.framework..."
+          codesign --force --sign "$IDENTITY" --timestamp --options runtime \
+            build/GameMode.app/Contents/Frameworks/Sparkle.framework
+
+          # Re-sign the main app (must be last)
+          echo "  Signing GameMode.app..."
+          codesign --force --sign "$IDENTITY" --timestamp --options runtime \
+            --entitlements GameMode/GameMode.entitlements \
+            build/GameMode.app
+
           # Verify the signature
           echo "==> Verifying code signature..."
-          codesign --verify --deep --strict build/GameMode.app
-          codesign -dvv build/GameMode.app 2>&1 | head -10
+          codesign --verify --deep --strict --verbose=2 build/GameMode.app
+          echo "==> Signature OK"
 
       # ── Notarize with Apple ──
       - name: Notarize app
