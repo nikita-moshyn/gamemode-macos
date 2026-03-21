@@ -53,6 +53,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		ADDCA16A2F6E2ADA002C2D4F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		BB0002000000000000000001 /* GameModeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameModeApp.swift; sourceTree = "<group>"; };
 		BB0002000000000000000002 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		BB0002000000000000000003 /* AppMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppMonitor.swift; sourceTree = "<group>"; };
@@ -128,6 +129,7 @@
 				BB0004000000000000000007 /* Views */,
 				BB0002000000000000000012 /* Info.plist */,
 				BB0002000000000000000013 /* GameMode.entitlements */,
+				ADDCA16A2F6E2ADA002C2D4F /* Assets.xcassets */,
 			);
 			path = GameMode;
 			sourceTree = "<group>";
@@ -445,6 +447,7 @@
 		BB0009000000000000000003 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_ENTITLEMENTS = GameMode/GameMode.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
@@ -470,6 +473,7 @@
 		BB0009000000000000000004 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_ENTITLEMENTS = GameMode/GameMode.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
