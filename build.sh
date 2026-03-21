@@ -15,9 +15,35 @@ set -euo pipefail
 APP_NAME="GameMode"
 BUILD_DIR="build"
 SOURCES=(
-    "GameMode/GameModeApp.swift"
-    "GameMode/AppMonitor.swift"
-    "GameMode/SettingsManager.swift"
+    # Models
+    "GameMode/Models/GameModeConfig.swift"
+    "GameMode/Models/MonitoredApp.swift"
+    "GameMode/Models/ShortcutEntry.swift"
+    "GameMode/Models/SymbolicHotkeys.swift"
+    "GameMode/Models/GestureEntry.swift"
+    "GameMode/Models/AppHotkey.swift"
+    "GameMode/Models/KeyCodeMap.swift"
+    # Core
+    "GameMode/Core/ConfigStore.swift"
+    "GameMode/Core/StateJournal.swift"
+    "GameMode/Core/AppDetector.swift"
+    "GameMode/Core/AppMonitor.swift"
+    "GameMode/Core/SettingsManager.swift"
+    "GameMode/Core/HotkeyManager.swift"
+    # Views
+    "GameMode/Views/SettingsWindow.swift"
+    "GameMode/Views/GeneralSettingsView.swift"
+    "GameMode/Views/AboutView.swift"
+    "GameMode/Views/ShortcutsSettingsView.swift"
+    "GameMode/Views/AppsSettingsView.swift"
+    "GameMode/Views/AppPickerSheet.swift"
+    "GameMode/Views/MouseSettingsView.swift"
+    "GameMode/Views/SystemSettingsView.swift"
+    "GameMode/Views/ShortcutRecorderView.swift"
+    "GameMode/Views/HotkeysSettingsView.swift"
+    # App
+    "GameMode/App/GameModeApp.swift"
+    "GameMode/App/AppDelegate.swift"
 )
 
 # Detect architecture
@@ -53,6 +79,8 @@ build_with_xcodebuild() {
 
 build_with_swiftc() {
     echo "==> Building with swiftc (direct compilation)..."
+    echo "    WARNING: swiftc build does not include Sparkle (auto-update)."
+    echo "    Use xcodebuild (default) for full functionality."
 
     SDK_PATH=$(xcrun --show-sdk-path)
     APP_BUNDLE="${BUILD_DIR}/${APP_NAME}.app"
@@ -69,6 +97,7 @@ build_with_swiftc() {
         -target "${TARGET}" \
         -sdk "${SDK_PATH}" \
         -framework AppKit \
+        -framework Carbon \
         -framework IOKit \
         -framework ServiceManagement \
         -framework UserNotifications \

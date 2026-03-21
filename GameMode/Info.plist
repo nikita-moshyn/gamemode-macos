@@ -9,7 +9,7 @@
 	<key>CFBundleIconFile</key>
 	<string></string>
 	<key>CFBundleIdentifier</key>
-	<string>com.nikita.GameMode</string>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
@@ -17,14 +17,18 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0</string>
+	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
-	<string>1</string>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>GameMode needs to monitor running applications.</string>
+	<key>SUFeedURL</key>
+	<string>https://raw.githubusercontent.com/nikita-moshyn/gamemode-macos/main/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>pKD1lgEEGCiYZ9mmKpa2odudG4KaKqNpi8QQKO5xzhU=</string>
 </dict>
 </plist>
