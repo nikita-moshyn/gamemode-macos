@@ -14,7 +14,7 @@ jobs:
     runs-on: macos-15
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -29,6 +29,43 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "Version: $VERSION (tag: $TAG)"
 
+      # ── Import Developer ID certificate into a temporary keychain ──
+      - name: Install signing certificate
+        env:
+          CERTIFICATE_P12: ${{ secrets.DEVELOPER_ID_CERT_P12 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_CERT_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 16)"
+
+          # Decode the certificate
+          echo "$CERTIFICATE_P12" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+
+          # Create temporary keychain
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Import certificate
+          security import "$RUNNER_TEMP/certificate.p12" \
+            -P "$CERTIFICATE_PASSWORD" \
+            -A -t cert -f pkcs12 \
+            -k "$KEYCHAIN_PATH"
+
+          # Allow codesign to access the keychain without prompt
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Add temporary keychain to search list (prepend so it's found first)
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
+
+          # Verify certificate is available
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+
+          # Clean up the decoded file
+          rm -f "$RUNNER_TEMP/certificate.p12"
+
+      # ── Build with Developer ID signing ──
       - name: Build Release
         env:
           BUILD_VERSION: ${{ steps.version.outputs.version }}
@@ -38,14 +75,11 @@ jobs:
             -scheme GameMode \
             -configuration Release \
             -derivedDataPath build/DerivedData \
-            CODE_SIGN_IDENTITY="-" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO \
-            DEVELOPMENT_TEAM="" \
             MARKETING_VERSION="$BUILD_VERSION" \
             CURRENT_PROJECT_VERSION="$BUILD_VERSION" \
             build
 
+      # ── Package the signed app ──
       - name: Package app
         id: package
         env:
@@ -59,14 +93,49 @@ jobs:
           fi
 
           cp -R "$APP_PATH" build/GameMode.app
-          codesign --force --deep --sign - build/GameMode.app
 
+          # Verify the signature
+          echo "==> Verifying code signature..."
+          codesign --verify --deep --strict build/GameMode.app
+          codesign -dvv build/GameMode.app 2>&1 | head -10
+
+      # ── Notarize with Apple ──
+      - name: Notarize app
+        env:
+          APPLE_ID: ${{ secrets.NOTARIZATION_APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.NOTARIZATION_PASSWORD }}
+          TEAM_ID: ${{ secrets.NOTARIZATION_TEAM_ID }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          echo "==> Creating ZIP for notarization..."
           cd build
           ditto -c -k --keepParent GameMode.app "GameMode-${VERSION}.zip"
+          cd ..
 
-          echo "zip_path=build/GameMode-${VERSION}.zip" >> "$GITHUB_OUTPUT"
-          echo "Packaged: build/GameMode-${VERSION}.zip"
+          echo "==> Submitting for notarization..."
+          xcrun notarytool submit "build/GameMode-${VERSION}.zip" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_PASSWORD" \
+            --team-id "$TEAM_ID" \
+            --wait \
+            --timeout 600
 
+          echo "==> Stapling notarization ticket..."
+          xcrun stapler staple build/GameMode.app
+
+          echo "==> Verifying notarization..."
+          spctl --assess --type execute --verbose build/GameMode.app
+
+          # Re-zip with the stapled ticket
+          echo "==> Re-packaging with stapled ticket..."
+          rm -f "build/GameMode-${VERSION}.zip"
+          cd build
+          ditto -c -k --keepParent GameMode.app "GameMode-${VERSION}.zip"
+          cd ..
+
+          echo "==> Notarization complete"
+
+      # ── Sparkle EdDSA signature for auto-updates ──
       - name: Sign with Sparkle EdDSA
         id: sparkle_sign
         env:
@@ -99,6 +168,7 @@ jobs:
           echo "length=$LENGTH" >> "$GITHUB_OUTPUT"
           echo "EdDSA signature: $ED_SIG (length: $LENGTH)"
 
+      # ── Update appcast.xml for Sparkle auto-updates ──
       - name: Generate appcast.xml
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -109,9 +179,9 @@ jobs:
           DOWNLOAD_URL="https://github.com/nikita-moshyn/gamemode-macos/releases/download/${TAG}/GameMode-${VERSION}.zip"
           PUB_DATE=$(date -u "+%a, %d %b %Y %H:%M:%S +0000")
 
-          # Build the new item block
-          read -r -d '' NEW_ITEM << ITEM_EOF || true
-          <item>
+          # Write the new item block to a temp file (avoids awk multi-line issues)
+          cat > /tmp/new_item.xml << ITEM_EOF
+              <item>
                   <title>Version ${VERSION}</title>
                   <sparkle:version>${VERSION}</sparkle:version>
                   <pubDate>${PUB_DATE}</pubDate>
@@ -122,11 +192,7 @@ jobs:
 
           if [ -f appcast.xml ]; then
             # Insert new item after <language>en</language> line
-            awk -v item="$NEW_ITEM" '
-              /<language>en<\/language>/ { print; print "        " item; next }
-              { print }
-            ' appcast.xml > appcast_tmp.xml
-            mv appcast_tmp.xml appcast.xml
+            sed -i '' "/<language>en<\/language>/r /tmp/new_item.xml" appcast.xml
           else
             cat > appcast.xml << EOF
           <?xml version="1.0" encoding="utf-8"?>
@@ -135,15 +201,20 @@ jobs:
                   <title>GameMode Changelog</title>
                   <description>Most recent changes with links to updates.</description>
                   <language>en</language>
-                  ${NEW_ITEM}
+          EOF
+            cat /tmp/new_item.xml >> appcast.xml
+            cat >> appcast.xml << EOF
               </channel>
           </rss>
           EOF
           fi
 
+          rm -f /tmp/new_item.xml
+
           echo "--- appcast.xml ---"
           cat appcast.xml
 
+      # ── Create GitHub Release ──
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         env:
@@ -157,13 +228,16 @@ jobs:
 
             Download the zip, unzip, and drag GameMode.app to Applications.
 
-            **Note:** This build is ad-hoc signed. On first launch, right-click > Open to bypass Gatekeeper.
+            This build is signed with Developer ID and notarized by Apple.
           files: |
             build/GameMode-${{ steps.version.outputs.version }}.zip
           draft: false
           prerelease: false
 
+      # ── Commit appcast.xml back to main ──
       - name: Commit appcast.xml to main
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -180,5 +254,12 @@ jobs:
 
           git commit -m "chore: update appcast.xml for ${VERSION}"
           git push origin main
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
+
+      # ── Cleanup keychain ──
+      - name: Cleanup
+        if: always()
+        run: |
+          KEYCHAIN_PATH="$RUNNER_TEMP/signing.keychain-db"
+          if [ -f "$KEYCHAIN_PATH" ]; then
+            security delete-keychain "$KEYCHAIN_PATH"
+          fi
