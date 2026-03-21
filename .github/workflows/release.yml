@@ -100,13 +100,22 @@ jobs:
           IDENTITY=$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
           echo "Signing with: $IDENTITY"
 
-          # Re-sign all nested Sparkle binaries with Developer ID + secure timestamp
+          # Re-sign everything inside Sparkle.framework (inside-out order)
+          # 1. Sign all standalone Mach-O binaries (like Autoupdate)
+          find build/GameMode.app/Contents/Frameworks -type f -perm +111 | while read -r bin; do
+            if file "$bin" | grep -q "Mach-O"; then
+              echo "  Signing binary: $bin"
+              codesign --force --sign "$IDENTITY" --timestamp --options runtime "$bin"
+            fi
+          done
+
+          # 2. Sign all nested .app and .xpc bundles
           find build/GameMode.app/Contents/Frameworks -type d \( -name "*.app" -o -name "*.xpc" \) | while read -r nested; do
-            echo "  Signing nested: $nested"
+            echo "  Signing bundle: $nested"
             codesign --force --sign "$IDENTITY" --timestamp --options runtime "$nested"
           done
 
-          # Sign the Sparkle framework itself
+          # 3. Sign the Sparkle framework itself
           echo "  Signing Sparkle.framework..."
           codesign --force --sign "$IDENTITY" --timestamp --options runtime \
             build/GameMode.app/Contents/Frameworks/Sparkle.framework
