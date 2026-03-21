@@ -3,8 +3,15 @@ name: Release
 on:
   push:
     tags:
-      - '[0-9]+.[0-9]+.[0-9]+'
+      # Stable: v0.1.0 or 0.1.0
       - 'v[0-9]+.[0-9]+.[0-9]+'
+      - '[0-9]+.[0-9]+.[0-9]+'
+      # Beta: v0.2.0-beta.1
+      - 'v[0-9]+.[0-9]+.[0-9]+-beta.*'
+      - '[0-9]+.[0-9]+.[0-9]+-beta.*'
+      # RC: v0.2.0-rc.1
+      - 'v[0-9]+.[0-9]+.[0-9]+-rc.*'
+      - '[0-9]+.[0-9]+.[0-9]+-rc.*'
 
 permissions:
   contents: write
@@ -18,16 +25,47 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Extract version from tag
-        id: version
+      # ── Parse tag into version, channel, and release flags ──
+      - name: Extract version and channel
+        id: meta
         env:
           TAG_REF: ${{ github.ref }}
         run: |
           TAG="${TAG_REF#refs/tags/}"
           VERSION="${TAG#v}"
+
+          # Determine release channel
+          if echo "$VERSION" | grep -q "\-beta\."; then
+            CHANNEL="beta"
+            PRERELEASE="true"
+            DISPLAY_NAME="GameMode $VERSION (Beta)"
+            UPDATE_APPCAST="false"
+            MERGE_TO_MAIN="false"
+          elif echo "$VERSION" | grep -q "\-rc\."; then
+            CHANNEL="rc"
+            PRERELEASE="true"
+            DISPLAY_NAME="GameMode $VERSION (Release Candidate)"
+            UPDATE_APPCAST="false"
+            MERGE_TO_MAIN="false"
+          else
+            CHANNEL="stable"
+            PRERELEASE="false"
+            DISPLAY_NAME="GameMode $VERSION"
+            UPDATE_APPCAST="true"
+            MERGE_TO_MAIN="true"
+          fi
+
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "Version: $VERSION (tag: $TAG)"
+          echo "channel=$CHANNEL" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
+          echo "display_name=$DISPLAY_NAME" >> "$GITHUB_OUTPUT"
+          echo "update_appcast=$UPDATE_APPCAST" >> "$GITHUB_OUTPUT"
+          echo "merge_to_main=$MERGE_TO_MAIN" >> "$GITHUB_OUTPUT"
+
+          echo "==> Version: $VERSION"
+          echo "==> Channel: $CHANNEL"
+          echo "==> Prerelease: $PRERELEASE"
 
       # ── Import Developer ID certificate into a temporary keychain ──
       - name: Install signing certificate
@@ -38,37 +76,30 @@ jobs:
           KEYCHAIN_PATH="$RUNNER_TEMP/signing.keychain-db"
           KEYCHAIN_PASSWORD="$(openssl rand -hex 16)"
 
-          # Decode the certificate
           echo "$CERTIFICATE_P12" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
 
-          # Create temporary keychain
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
-          # Import certificate
           security import "$RUNNER_TEMP/certificate.p12" \
             -P "$CERTIFICATE_PASSWORD" \
             -A -t cert -f pkcs12 \
             -k "$KEYCHAIN_PATH"
 
-          # Allow codesign to access the keychain without prompt
           security set-key-partition-list -S apple-tool:,apple:,codesign: \
             -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
-          # Add temporary keychain to search list (prepend so it's found first)
           security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
 
-          # Verify certificate is available
           security find-identity -v -p codesigning "$KEYCHAIN_PATH"
 
-          # Clean up the decoded file
           rm -f "$RUNNER_TEMP/certificate.p12"
 
       # ── Build with Developer ID signing ──
       - name: Build Release
         env:
-          BUILD_VERSION: ${{ steps.version.outputs.version }}
+          BUILD_VERSION: ${{ steps.meta.outputs.version }}
         run: |
           xcodebuild \
             -project GameMode.xcodeproj \
@@ -81,11 +112,11 @@ jobs:
             CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
             build
 
-      # ── Re-sign nested Sparkle binaries with Developer ID + timestamp ──
+      # ── Sign all binaries with Developer ID + timestamp ──
       - name: Package and sign app
         id: package
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ steps.meta.outputs.version }}
         run: |
           APP_PATH=$(find build/DerivedData -name "GameMode.app" -type d | head -1)
 
@@ -96,11 +127,9 @@ jobs:
 
           cp -R "$APP_PATH" build/GameMode.app
 
-          # Find the signing identity
           IDENTITY=$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
           echo "Signing with: $IDENTITY"
 
-          # Re-sign everything inside Sparkle.framework (inside-out order)
           # 1. Sign all standalone Mach-O binaries (like Autoupdate)
           find build/GameMode.app/Contents/Frameworks -type f -perm +111 | while read -r bin; do
             if file "$bin" | grep -q "Mach-O"; then
@@ -115,18 +144,17 @@ jobs:
             codesign --force --sign "$IDENTITY" --timestamp --options runtime "$nested"
           done
 
-          # 3. Sign the Sparkle framework itself
+          # 3. Sign the Sparkle framework
           echo "  Signing Sparkle.framework..."
           codesign --force --sign "$IDENTITY" --timestamp --options runtime \
             build/GameMode.app/Contents/Frameworks/Sparkle.framework
 
-          # Re-sign the main app (must be last)
+          # 4. Sign the main app (must be last)
           echo "  Signing GameMode.app..."
           codesign --force --sign "$IDENTITY" --timestamp --options runtime \
             --entitlements GameMode/GameMode.entitlements \
             build/GameMode.app
 
-          # Verify the signature
           echo "==> Verifying code signature..."
           codesign --verify --deep --strict --verbose=2 build/GameMode.app
           echo "==> Signature OK"
@@ -137,7 +165,7 @@ jobs:
           APPLE_ID: ${{ secrets.NOTARIZATION_APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.NOTARIZATION_PASSWORD }}
           TEAM_ID: ${{ secrets.NOTARIZATION_TEAM_ID }}
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ steps.meta.outputs.version }}
         run: |
           echo "==> Creating ZIP for notarization..."
           cd build
@@ -154,10 +182,8 @@ jobs:
 
           echo "$SUBMIT_OUTPUT"
 
-          # Extract submission ID
           SUBMISSION_ID=$(echo "$SUBMIT_OUTPUT" | grep "id:" | head -1 | awk '{print $2}')
 
-          # Check if notarization succeeded
           if echo "$SUBMIT_OUTPUT" | grep -q "status: Invalid"; then
             echo "==> Notarization FAILED. Fetching rejection log..."
             xcrun notarytool log "$SUBMISSION_ID" \
@@ -175,7 +201,6 @@ jobs:
           echo "==> Verifying notarization..."
           spctl --assess --type execute --verbose build/GameMode.app
 
-          # Re-zip with the stapled ticket
           echo "==> Re-packaging with stapled ticket..."
           rm -f "build/GameMode-${VERSION}.zip"
           cd build
@@ -189,7 +214,7 @@ jobs:
         id: sparkle_sign
         env:
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ steps.meta.outputs.version }}
         run: |
           ZIP="build/GameMode-${VERSION}.zip"
 
@@ -217,18 +242,18 @@ jobs:
           echo "length=$LENGTH" >> "$GITHUB_OUTPUT"
           echo "EdDSA signature: $ED_SIG (length: $LENGTH)"
 
-      # ── Update appcast.xml for Sparkle auto-updates ──
+      # ── Update appcast.xml (stable releases only) ──
       - name: Generate appcast.xml
+        if: steps.meta.outputs.update_appcast == 'true'
         env:
-          VERSION: ${{ steps.version.outputs.version }}
-          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          TAG: ${{ steps.meta.outputs.tag }}
           ED_SIG: ${{ steps.sparkle_sign.outputs.signature }}
           LENGTH: ${{ steps.sparkle_sign.outputs.length }}
         run: |
           DOWNLOAD_URL="https://github.com/nikita-moshyn/gamemode-macos/releases/download/${TAG}/GameMode-${VERSION}.zip"
           PUB_DATE=$(date -u "+%a, %d %b %Y %H:%M:%S +0000")
 
-          # Write the new item block to a temp file (avoids awk multi-line issues)
           cat > /tmp/new_item.xml << ITEM_EOF
               <item>
                   <title>Version ${VERSION}</title>
@@ -240,7 +265,6 @@ jobs:
           ITEM_EOF
 
           if [ -f appcast.xml ]; then
-            # Insert new item after <language>en</language> line
             sed -i '' "/<language>en<\/language>/r /tmp/new_item.xml" appcast.xml
           else
             cat > appcast.xml << EOF
@@ -266,42 +290,50 @@ jobs:
       # ── Create GitHub Release ──
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-          TAG: ${{ steps.version.outputs.tag }}
         with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          name: GameMode ${{ steps.version.outputs.version }}
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: ${{ steps.meta.outputs.display_name }}
           body: |
-            ## GameMode ${{ steps.version.outputs.version }}
+            ## ${{ steps.meta.outputs.display_name }}
 
             Download the zip, unzip, and drag GameMode.app to Applications.
 
-            This build is signed with Developer ID and notarized by Apple.
+            Signed with Developer ID and notarized by Apple.
           files: |
-            build/GameMode-${{ steps.version.outputs.version }}.zip
+            build/GameMode-${{ steps.meta.outputs.version }}.zip
           draft: false
-          prerelease: false
+          prerelease: ${{ steps.meta.outputs.prerelease == 'true' }}
 
-      # ── Commit appcast.xml back to main ──
-      - name: Commit appcast.xml to main
+      # ── Merge to main and commit appcast (stable releases only) ──
+      - name: Merge to main
+        if: steps.meta.outputs.merge_to_main == 'true'
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          TAG: ${{ steps.meta.outputs.tag }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Stash the generated appcast
+          # Save generated appcast
           cp appcast.xml /tmp/appcast.xml
+
+          # Get the tagged commit
+          TAGGED_COMMIT=$(git rev-list -n 1 "$TAG")
 
           git fetch origin main
           git checkout main
 
+          # Merge the tagged commit into main
+          git merge --no-ff "$TAGGED_COMMIT" -m "release: merge $VERSION into main"
+
+          # Copy the updated appcast
           cp /tmp/appcast.xml appcast.xml
           git add appcast.xml
-          git diff --cached --quiet && echo "No appcast changes to commit" && exit 0
 
-          git commit -m "chore: update appcast.xml for ${VERSION}"
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: update appcast.xml for $VERSION"
+          fi
+
           git push origin main
 
       # ── Cleanup keychain ──
