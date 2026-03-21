@@ -32,6 +32,7 @@
 		BB000100000000000000001A /* HotkeysSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000200000000000000001A /* HotkeysSettingsView.swift */; };
 		BB000100000000000000001B /* GeneralSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000200000000000000001B /* GeneralSettingsView.swift */; };
 		BB000100000000000000001C /* AboutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000200000000000000001C /* AboutView.swift */; };
+		BB000100000000000000001D /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = BB000200000000000000001D /* Sparkle */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -70,6 +71,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				BB000100000000000000001D /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -173,6 +175,9 @@
 			dependencies = (
 			);
 			name = GameMode;
+			packageProductDependencies = (
+				BB000200000000000000001D /* Sparkle */,
+			);
 			productName = GameMode;
 			productReference = BB0002000000000000000014 /* GameMode.app */;
 			productType = "com.apple.product-type.application";
@@ -196,6 +201,9 @@
 				Base,
 			);
 			mainGroup = BB0004000000000000000001;
+			packageReferences = (
+				BB000A00000000000000001D /* XCRemoteSwiftPackageReference "Sparkle" */,
+			);
 			productRefGroup = BB0004000000000000000003 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -350,7 +358,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = GameMode/GameMode.entitlements;
-				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
@@ -364,8 +371,8 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 2.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.nikita.GameMode;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.moshyn.nikita.GameMode;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -376,7 +383,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = GameMode/GameMode.entitlements;
-				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
@@ -390,8 +396,8 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 2.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.nikita.GameMode;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.moshyn.nikita.GameMode;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -420,6 +426,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		BB000A00000000000000001D /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.6.4;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		BB000200000000000000001D /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BB000A00000000000000001D /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = BB0008000000000000000001 /* Project object */;
 }

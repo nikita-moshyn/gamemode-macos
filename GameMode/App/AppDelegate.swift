@@ -9,6 +9,7 @@
 import AppKit
 import Combine
 import Carbon
+import Sparkle
 import SwiftUI
 import UserNotifications
 
@@ -22,6 +23,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var hotkeyManager = HotkeyManager()
     private var settingsWindow: NSWindow?
     private var aboutWindow: NSWindow?
+    private let updaterController = SPUStandardUpdaterController(startingUpdater: false, updaterDelegate: nil, userDriverDelegate: nil)
     private var cancellables = Set<AnyCancellable>()
     private let transitionStateQueue = DispatchQueue(label: "com.nikita.GameMode.transitionState")
     private var targetGameModeState = false
@@ -90,6 +92,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Register global hotkeys
         registerHotkeys()
         observeConfigurationChanges()
+
+        // Start Sparkle updater
+        updaterController.startUpdater()
 
         // Register for shutdown/restart
         NSWorkspace.shared.notificationCenter.addObserver(
@@ -674,6 +679,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         window.makeKeyAndOrderFront(nil)
 
         self.settingsWindow = window
+
+        // Show Dock icon while settings window is open
+        NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
 
         // Start polling accessibility status while settings is open
@@ -692,6 +700,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard let window = notification.object as? NSWindow, window === settingsWindow else { return }
         configStore.stopAccessibilityPolling()
         NotificationCenter.default.removeObserver(self, name: NSWindow.willCloseNotification, object: window)
+
+        // Hide Dock icon when settings window closes
+        NSApp.setActivationPolicy(.accessory)
     }
 
     @objc private func openAbout() {
@@ -715,9 +726,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func checkForUpdates() {
-        if let url = URL(string: "https://github.com/user/GameMode/releases") {
-            NSWorkspace.shared.open(url)
-        }
+        updaterController.checkForUpdates(nil)
     }
 
     @objc private func quitApp() {

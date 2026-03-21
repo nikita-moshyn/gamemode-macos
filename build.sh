@@ -79,6 +79,8 @@ build_with_xcodebuild() {
 
 build_with_swiftc() {
     echo "==> Building with swiftc (direct compilation)..."
+    echo "    WARNING: swiftc build does not include Sparkle (auto-update)."
+    echo "    Use xcodebuild (default) for full functionality."
 
     SDK_PATH=$(xcrun --show-sdk-path)
     APP_BUNDLE="${BUILD_DIR}/${APP_NAME}.app"
