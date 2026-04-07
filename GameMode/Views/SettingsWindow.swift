@@ -15,6 +15,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     case applications
     case mouse
     case system
+    case logs
 
     var id: String { rawValue }
 
@@ -26,6 +27,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .applications: return "Applications"
         case .mouse:        return "Mouse"
         case .system:       return "System"
+        case .logs:         return "Logs"
         }
     }
 
@@ -37,6 +39,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .applications: return "app.dashed"
         case .mouse:        return "computermouse"
         case .system:       return "wrench.and.screwdriver"
+        case .logs:         return "doc.text"
         }
     }
 }
@@ -99,6 +102,8 @@ struct SettingsWindow: View {
                 onForceRestore: onForceRestore,
                 onResetAllSavedData: onResetAllSavedData
             )
+        case .logs:
+            LogsSettingsView(configStore: configStore)
         }
     }
 }

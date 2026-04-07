@@ -51,7 +51,7 @@ class HotkeyManager {
                 &eventHandler
             )
             if status != noErr {
-                print("[Hotkeys] Failed to install Carbon event handler: \(status)")
+                Log.error("Failed to install Carbon event handler: \(status)", category: "Hotkeys")
                 return
             }
         }
@@ -77,15 +77,18 @@ class HotkeyManager {
                 registeredHotkeys.append(ref)
                 self.handlers[UInt32(index)] = handlers[hotkey.id]
             } else {
-                print("[Hotkeys] Failed to register hotkey \(hotkey.name): \(status)")
+                Log.error("Failed to register hotkey \(hotkey.name): \(status)", category: "Hotkeys")
             }
         }
 
-        print("[Hotkeys] Registered \(registeredHotkeys.count) hotkey(s) via Carbon")
+        Log.info("Registered \(registeredHotkeys.count) hotkey(s) via Carbon", category: "Hotkeys")
     }
 
     /// Remove all registered hotkeys.
     func unregisterAll() {
+        if !registeredHotkeys.isEmpty {
+            Log.debug("Unregistered \(registeredHotkeys.count) hotkey(s)", category: "Hotkeys")
+        }
         for ref in registeredHotkeys {
             UnregisterEventHotKey(ref)
         }
@@ -109,6 +112,7 @@ class HotkeyManager {
         guard status == noErr else { return }
 
         if let handler = handlers[hotkeyID.id] {
+            Log.debug("Hotkey triggered: id=\(hotkeyID.id)", category: "Hotkeys")
             DispatchQueue.main.async {
                 handler()
             }
@@ -143,6 +147,7 @@ class HotkeyManager {
 
     /// Prompts the user to grant Accessibility permission.
     static func requestAccessibilityPermission() {
+        Log.info("Requesting accessibility permission", category: "Hotkeys")
         let options = [kAXTrustedCheckOptionPrompt.takeRetainedValue(): true] as CFDictionary
         AXIsProcessTrustedWithOptions(options)
     }

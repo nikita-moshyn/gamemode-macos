@@ -65,8 +65,10 @@ class AppMonitor {
             }
         }
         if activeGameCount > 0 {
-            print("[AppMonitor] \(activeGameCount) monitored app(s) already running")
+            Log.info("\(activeGameCount) monitored app(s) already running", category: "AppMonitor")
             DispatchQueue.main.async { self.onActivate() }
+        } else {
+            Log.debug("No monitored apps currently running", category: "AppMonitor")
         }
     }
 
@@ -79,8 +81,7 @@ class AppMonitor {
         else { return }
 
         activeGameCount += 1
-        print("[AppMonitor] Monitored app launched: \(app.bundleIdentifier ?? "?") "
-              + "(active count: \(activeGameCount))")
+        Log.info("Monitored app launched: \(app.bundleIdentifier ?? "?") (active count: \(activeGameCount))", category: "AppMonitor")
 
         if activeGameCount == 1 {
             DispatchQueue.main.async { self.onActivate() }
@@ -94,8 +95,7 @@ class AppMonitor {
         else { return }
 
         activeGameCount = max(0, activeGameCount - 1)
-        print("[AppMonitor] Monitored app terminated: \(app.bundleIdentifier ?? "?") "
-              + "(active count: \(activeGameCount))")
+        Log.info("Monitored app terminated: \(app.bundleIdentifier ?? "?") (active count: \(activeGameCount))", category: "AppMonitor")
 
         if activeGameCount == 0 {
             DispatchQueue.main.async { self.onDeactivate() }
