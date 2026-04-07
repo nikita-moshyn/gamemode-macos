@@ -25,32 +25,60 @@ enum Log {
     // MARK: - Public API
 
     static func debug(_ message: String, category: String = "general") {
-        guard shouldLog(.debug) else { return }
-        logger(category: category).debug("\(message, privacy: .public)")
+        log(.debug, message, category: category)
     }
 
     static func info(_ message: String, category: String = "general") {
-        guard shouldLog(.info) else { return }
-        logger(category: category).info("\(message, privacy: .public)")
+        log(.info, message, category: category)
     }
 
     static func warning(_ message: String, category: String = "general") {
-        guard shouldLog(.warning) else { return }
-        logger(category: category).warning("\(message, privacy: .public)")
+        log(.warning, message, category: category)
     }
 
     static func error(_ message: String, category: String = "general") {
-        guard shouldLog(.error) else { return }
-        logger(category: category).error("\(message, privacy: .public)")
+        log(.error, message, category: category)
+    }
+
+    /// Logs using an explicit config snapshot instead of `ConfigStore.shared`.
+    /// This avoids re-entering the singleton while it is still initializing.
+    static func bootstrap(_ level: LogLevel, _ message: String, category: String = "general", config: GameModeConfig) {
+        guard shouldLog(level, config: config) else { return }
+        emit(level, message, category: category)
     }
 
     // MARK: - Level Filtering
+
+    private static func log(_ level: LogLevel, _ message: String, category: String) {
+        guard shouldLog(level) else { return }
+        emit(level, message, category: category)
+    }
+
+    private static func emit(_ level: LogLevel, _ message: String, category: String) {
+        switch level {
+        case .debug:
+            logger(category: category).debug("\(message, privacy: .public)")
+        case .info:
+            logger(category: category).info("\(message, privacy: .public)")
+        case .warning:
+            logger(category: category).warning("\(message, privacy: .public)")
+        case .error:
+            logger(category: category).error("\(message, privacy: .public)")
+        }
+    }
 
     private static func shouldLog(_ level: LogLevel) -> Bool {
         #if DEBUG
         return true
         #else
-        let config = ConfigStore.shared.config
+        return shouldLog(level, config: ConfigStore.shared.config)
+        #endif
+    }
+
+    private static func shouldLog(_ level: LogLevel, config: GameModeConfig) -> Bool {
+        #if DEBUG
+        return true
+        #else
         guard config.loggingEnabled else { return false }
         return level >= config.logLevel
         #endif

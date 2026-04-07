@@ -44,14 +44,17 @@ class ConfigStore: ObservableObject {
     init(defaults: UserDefaults, key: String = "GameModeConfig_v2") {
         self.defaults = defaults
         self.key = key
+        let initialLog: (level: LogLevel, message: String)
         if let data = defaults.data(forKey: key),
            let decoded = try? JSONDecoder().decode(GameModeConfig.self, from: data) {
             self.config = decoded
-            Log.debug("Config loaded from UserDefaults", category: "Config")
+            initialLog = (.debug, "Config loaded from UserDefaults")
         } else {
-            self.config = GameModeConfig.defaults
-            Log.info("Using default config (first launch)", category: "Config")
+            let defaultConfig = GameModeConfig.defaults
+            self.config = defaultConfig
+            initialLog = (.info, "Using default config (first launch)")
         }
+        Log.bootstrap(initialLog.level, initialLog.message, category: "Config", config: config)
     }
 
     // MARK: - Persistence
