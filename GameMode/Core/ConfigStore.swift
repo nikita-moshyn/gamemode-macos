@@ -44,19 +44,28 @@ class ConfigStore: ObservableObject {
     init(defaults: UserDefaults, key: String = "GameModeConfig_v2") {
         self.defaults = defaults
         self.key = key
+        let initialLog: (level: LogLevel, message: String)
         if let data = defaults.data(forKey: key),
            let decoded = try? JSONDecoder().decode(GameModeConfig.self, from: data) {
             self.config = decoded
+            initialLog = (.debug, "Config loaded from UserDefaults")
         } else {
-            self.config = GameModeConfig.defaults
+            let defaultConfig = GameModeConfig.defaults
+            self.config = defaultConfig
+            initialLog = (.info, "Using default config (first launch)")
         }
+        Log.bootstrap(initialLog.level, initialLog.message, category: "Config", config: config)
     }
 
     // MARK: - Persistence
 
     func save() {
-        guard let data = try? JSONEncoder().encode(config) else { return }
+        guard let data = try? JSONEncoder().encode(config) else {
+            Log.error("Config save failed: could not encode", category: "Config")
+            return
+        }
         defaults.set(data, forKey: key)
+        Log.debug("Config saved", category: "Config")
     }
 
     func resetAllSavedData() {
@@ -65,6 +74,7 @@ class ConfigStore: ObservableObject {
         isGamingMode = false
         isMouseBoostApplied = false
         sessionMouseBaselineSpeed = nil
+        Log.warning("All saved data reset to defaults", category: "Config")
     }
 
     /// True if this is the first launch (no saved config found).
@@ -76,13 +86,16 @@ class ConfigStore: ObservableObject {
 
     func addApp(_ app: MonitoredApp) {
         guard !config.monitoredApps.contains(where: { $0.bundleID == app.bundleID }) else {
+            Log.debug("Duplicate app skipped: \(app.bundleID)", category: "Config")
             return
         }
         config.monitoredApps.append(app)
+        Log.info("App added: \(app.name)", category: "Config")
     }
 
     func removeApp(id: UUID) {
         config.monitoredApps.removeAll { $0.id == id }
+        Log.info("App removed: \(id)", category: "Config")
     }
 
     func toggleApp(id: UUID) {

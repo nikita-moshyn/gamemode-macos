@@ -124,9 +124,9 @@ class StateJournal {
             )
             let data = try JSONEncoder().encode(state)
             try data.write(to: fileURL, options: .atomic)
-            print("[StateJournal] Written: isActive=\(state.isActive)")
+            Log.debug("Journal written: isActive=\(state.isActive)", category: "StateJournal")
         } catch {
-            print("[StateJournal] Write failed: \(error)")
+            Log.error("Journal write failed: \(error)", category: "StateJournal")
         }
     }
 
@@ -136,13 +136,17 @@ class StateJournal {
         var state = load()
         mutate(&state)
         write(state)
+        Log.debug("Journal updated", category: "StateJournal")
     }
 
     /// Load state. Returns inactive if file is missing or corrupt.
     func load() -> GameModeState {
-        guard let data = try? Data(contentsOf: fileURL),
-              let state = try? JSONDecoder().decode(GameModeState.self, from: data)
-        else {
+        guard let data = try? Data(contentsOf: fileURL) else {
+            Log.debug("No journal found (clean state)", category: "StateJournal")
+            return .inactive
+        }
+        guard let state = try? JSONDecoder().decode(GameModeState.self, from: data) else {
+            Log.warning("Journal corrupt, returning inactive", category: "StateJournal")
             return .inactive
         }
         return state
@@ -151,12 +155,16 @@ class StateJournal {
     /// Clear journal after successful restore.
     func clear() {
         try? FileManager.default.removeItem(at: fileURL)
-        print("[StateJournal] Cleared")
+        Log.debug("Journal cleared", category: "StateJournal")
     }
 
     /// Check if there's a dirty state (gaming mode was active when app died).
     var hasDirtyState: Bool {
-        load().isActive
+        let dirty = load().isActive
+        if dirty {
+            Log.warning("Dirty state detected in journal", category: "StateJournal")
+        }
+        return dirty
     }
 
     // MARK: - Static convenience (preserves existing call sites)

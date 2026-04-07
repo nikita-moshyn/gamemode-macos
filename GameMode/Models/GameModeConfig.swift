@@ -18,6 +18,8 @@ struct GameModeConfig: Codable {
     var system: SystemConfig
     var gestures: [GestureEntry]
     var hotkeys: [AppHotkey]
+    var loggingEnabled: Bool
+    var logLevel: LogLevel
 
     static var defaults: GameModeConfig {
         GameModeConfig(
@@ -27,7 +29,9 @@ struct GameModeConfig: Codable {
             mouse: MouseConfig(),
             system: SystemConfig(),
             gestures: GestureEntry.defaults,
-            hotkeys: AppHotkey.defaults
+            hotkeys: AppHotkey.defaults,
+            loggingEnabled: true,
+            logLevel: .info
         )
     }
 
@@ -41,12 +45,16 @@ struct GameModeConfig: Codable {
         system = try container.decode(SystemConfig.self, forKey: .system)
         gestures = try container.decodeIfPresent([GestureEntry].self, forKey: .gestures) ?? GestureEntry.defaults
         hotkeys = try container.decodeIfPresent([AppHotkey].self, forKey: .hotkeys) ?? AppHotkey.defaults
+        loggingEnabled = try container.decodeIfPresent(Bool.self, forKey: .loggingEnabled) ?? true
+        logLevel = try container.decodeIfPresent(LogLevel.self, forKey: .logLevel) ?? .info
     }
 
     init(monitoredApps: [MonitoredApp], shortcuts: [ShortcutEntry], functionKeysInGamingMode: Bool,
          mouse: MouseConfig, system: SystemConfig,
          gestures: [GestureEntry] = GestureEntry.defaults,
-         hotkeys: [AppHotkey] = AppHotkey.defaults) {
+         hotkeys: [AppHotkey] = AppHotkey.defaults,
+         loggingEnabled: Bool = true,
+         logLevel: LogLevel = .info) {
         self.monitoredApps = monitoredApps
         self.shortcuts = shortcuts
         self.functionKeysInGamingMode = functionKeysInGamingMode
@@ -54,6 +62,8 @@ struct GameModeConfig: Codable {
         self.system = system
         self.gestures = gestures
         self.hotkeys = hotkeys
+        self.loggingEnabled = loggingEnabled
+        self.logLevel = logLevel
     }
 }
 

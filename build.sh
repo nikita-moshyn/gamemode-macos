@@ -23,8 +23,10 @@ SOURCES=(
     "GameMode/Models/GestureEntry.swift"
     "GameMode/Models/AppHotkey.swift"
     "GameMode/Models/KeyCodeMap.swift"
+    "GameMode/Models/LogLevel.swift"
     # Core
     "GameMode/Core/ConfigStore.swift"
+    "GameMode/Core/Log.swift"
     "GameMode/Core/StateJournal.swift"
     "GameMode/Core/AppDetector.swift"
     "GameMode/Core/AppMonitor.swift"
@@ -39,6 +41,7 @@ SOURCES=(
     "GameMode/Views/AppPickerSheet.swift"
     "GameMode/Views/MouseSettingsView.swift"
     "GameMode/Views/SystemSettingsView.swift"
+    "GameMode/Views/LogsSettingsView.swift"
     "GameMode/Views/ShortcutRecorderView.swift"
     "GameMode/Views/HotkeysSettingsView.swift"
     # App

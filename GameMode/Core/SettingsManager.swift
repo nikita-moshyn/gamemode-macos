@@ -56,22 +56,22 @@ class SettingsManager {
     /// Does NOT apply — call `applyKeyboardChanges()` after.
     func writeFunctionKeys(enabled: Bool) {
         let tag = enabled ? "ACTIVATE" : "RESTORE"
-        print("[FnKeys:\(tag)] ━━━ START ━━━")
+        Log.debug("[FnKeys:\(tag)] ━━━ START ━━━", category: "FnKeys")
 
         // 1. Read current state from CFPreferences (ByHost)
         let cfBefore = readFunctionKeysEnabled()
-        print("[FnKeys:\(tag)] CFPreferences read BEFORE: \(cfBefore)")
+        Log.debug("[FnKeys:\(tag)] CFPreferences read BEFORE: \(cfBefore)", category: "FnKeys")
 
         // 2. Read raw plist file on disk to compare
         let diskBefore = readFnStateFromDisk()
-        print("[FnKeys:\(tag)] Disk plist BEFORE: \(diskBefore ?? "nil (key missing)")")
+        Log.debug("[FnKeys:\(tag)] Disk plist BEFORE: \(diskBefore ?? "nil (key missing)")", category: "FnKeys")
 
         // 3. Read via defaults command for cross-check
         let defaultsBefore = readFnStateViaDefaults()
-        print("[FnKeys:\(tag)] defaults read BEFORE: \(defaultsBefore ?? "nil (failed)")")
+        Log.debug("[FnKeys:\(tag)] defaults read BEFORE: \(defaultsBefore ?? "nil (failed)")", category: "FnKeys")
 
         // 4. Write
-        print("[FnKeys:\(tag)] Writing \(enabled ? "kCFBooleanTrue" : "kCFBooleanFalse") to \(functionKeysPreferenceKey)...")
+        Log.debug("[FnKeys:\(tag)] Writing \(enabled ? "kCFBooleanTrue" : "kCFBooleanFalse") to \(functionKeysPreferenceKey)...", category: "FnKeys")
         CFPreferencesSetValue(
             functionKeysPreferenceKey,
             enabled ? kCFBooleanTrue : kCFBooleanFalse,
@@ -82,7 +82,7 @@ class SettingsManager {
 
         // 5. Read back BEFORE sync
         let cfAfterWrite = readFunctionKeysEnabled()
-        print("[FnKeys:\(tag)] CFPreferences read AFTER write (before sync): \(cfAfterWrite)")
+        Log.debug("[FnKeys:\(tag)] CFPreferences read AFTER write (before sync): \(cfAfterWrite)", category: "FnKeys")
 
         // 6. Synchronize
         let synced = CFPreferencesSynchronize(
@@ -90,23 +90,27 @@ class SettingsManager {
             kCFPreferencesCurrentUser,
             kCFPreferencesCurrentHost
         )
-        print("[FnKeys:\(tag)] CFPreferencesSynchronize returned: \(synced)")
+        Log.debug("[FnKeys:\(tag)] CFPreferencesSynchronize returned: \(synced)", category: "FnKeys")
 
         // 7. Read back AFTER sync
         let cfAfterSync = readFunctionKeysEnabled()
-        print("[FnKeys:\(tag)] CFPreferences read AFTER sync: \(cfAfterSync)")
+        Log.debug("[FnKeys:\(tag)] CFPreferences read AFTER sync: \(cfAfterSync)", category: "FnKeys")
 
         // 8. Read disk AFTER sync
         let diskAfter = readFnStateFromDisk()
-        print("[FnKeys:\(tag)] Disk plist AFTER sync: \(diskAfter ?? "nil (key missing)")")
+        Log.debug("[FnKeys:\(tag)] Disk plist AFTER sync: \(diskAfter ?? "nil (key missing)")", category: "FnKeys")
 
         // 9. Cross-check with defaults
         let defaultsAfter = readFnStateViaDefaults()
-        print("[FnKeys:\(tag)] defaults read AFTER sync: \(defaultsAfter ?? "nil (failed)")")
+        Log.debug("[FnKeys:\(tag)] defaults read AFTER sync: \(defaultsAfter ?? "nil (failed)")", category: "FnKeys")
 
         // 10. Summary
         let success = cfAfterSync == enabled
-        print("[FnKeys:\(tag)] ━━━ \(success ? "OK" : "FAILED") ━━━  requested=\(enabled) cfResult=\(cfAfterSync) disk=\(diskAfter ?? "nil")")
+        if success {
+            Log.debug("[FnKeys:\(tag)] ━━━ OK ━━━  requested=\(enabled) cfResult=\(cfAfterSync) disk=\(diskAfter ?? "nil")", category: "FnKeys")
+        } else {
+            Log.warning("[FnKeys:\(tag)] ━━━ FAILED ━━━  requested=\(enabled) cfResult=\(cfAfterSync) disk=\(diskAfter ?? "nil")", category: "FnKeys")
+        }
     }
 
     /// Read fnState directly from the ByHost plist file on disk.
@@ -116,7 +120,7 @@ class SettingsManager {
             return "ERROR: cannot list ByHost dir"
         }
         let globalFiles = files.filter { $0.hasPrefix(".GlobalPreferences.") && $0.hasSuffix(".plist") }
-        print("[FnKeys:disk] ByHost plist files: \(globalFiles)")
+        Log.debug("[FnKeys:disk] ByHost plist files: \(globalFiles)", category: "FnKeys")
 
         for file in globalFiles {
             let path = byHostDir + "/" + file
@@ -159,16 +163,16 @@ class SettingsManager {
                 kCFPreferencesCurrentHost
             )
             if readFunctionKeysEnabled() == enabled {
-                print("[FnKeys:verify] Verified: standard=\(enabled)")
+                Log.debug("[FnKeys:verify] Verified: standard=\(enabled)", category: "FnKeys")
                 return true
             }
             usleep(100_000)
         } while Date() < deadline
 
-        print("[FnKeys:verify] FAILED to verify: standard=\(enabled), actual=\(readFunctionKeysEnabled())")
+        Log.warning("[FnKeys:verify] FAILED to verify: standard=\(enabled), actual=\(readFunctionKeysEnabled())", category: "FnKeys")
         let diskVal = readFnStateFromDisk()
         let defaultsVal = readFnStateViaDefaults()
-        print("[FnKeys:verify] disk=\(diskVal ?? "nil"), defaults=\(defaultsVal ?? "nil")")
+        Log.warning("[FnKeys:verify] disk=\(diskVal ?? "nil"), defaults=\(defaultsVal ?? "nil")", category: "FnKeys")
         return false
     }
 
@@ -184,6 +188,7 @@ class SettingsManager {
                   let enabled = entry["enabled"] as? Bool else { continue }
             states[id] = enabled
         }
+        Log.debug("Captured \(states.count) shortcut state(s)", category: "Settings")
         return states
     }
 
@@ -191,6 +196,7 @@ class SettingsManager {
     /// Only flips the `enabled` flag — never touches the key binding.
     /// Reads/writes the plist directly — no PlistBuddy subprocess.
     func writeShortcuts(ids: [Int], enabled: Bool) {
+        Log.info("\(enabled ? "Enabling" : "Disabling") \(ids.count) shortcut(s)", category: "Settings")
         let states = Dictionary(uniqueKeysWithValues: ids.map { ($0, enabled) })
         writeShortcutStates(states)
     }
@@ -207,7 +213,7 @@ class SettingsManager {
                   from: data, options: .mutableContainersAndLeaves, format: nil
               ) as? [String: Any],
               var hotkeys = plist["AppleSymbolicHotKeys"] as? [String: Any] else {
-            print("[Settings] Cannot read symbolic hotkeys plist")
+            Log.error("Cannot read symbolic hotkeys plist", category: "Settings")
             return
         }
 
@@ -227,7 +233,7 @@ class SettingsManager {
             try? outData.write(to: plistURL, options: .atomic)
         }
 
-        print("[Settings] Wrote \(states.count) shortcut state(s)")
+        Log.info("Wrote \(states.count) shortcut state(s)", category: "Settings")
     }
 
     /// Apply all pending keyboard/shortcut changes in one shot.
@@ -235,7 +241,7 @@ class SettingsManager {
     /// at background priority after a short delay to avoid system stalls.
     func applyKeyboardChanges() {
         let fnBefore = readFunctionKeysEnabled()
-        print("[Apply] fnState BEFORE signalPreferencesDaemon: \(fnBefore)")
+        Log.debug("[Apply] fnState BEFORE signalPreferencesDaemon: \(fnBefore)", category: "Settings")
 
         signalPreferencesDaemon()
 
@@ -247,9 +253,9 @@ class SettingsManager {
             kCFPreferencesCurrentHost
         )
         let fnAfterSignal = readFunctionKeysEnabled()
-        print("[Apply] fnState AFTER signalPreferencesDaemon: \(fnAfterSignal)")
+        Log.debug("[Apply] fnState AFTER signalPreferencesDaemon: \(fnAfterSignal)", category: "Settings")
         if fnBefore != fnAfterSignal {
-            print("[Apply] ⚠️ WARNING: signalPreferencesDaemon CHANGED fnState from \(fnBefore) to \(fnAfterSignal)!")
+            Log.warning("[Apply] signalPreferencesDaemon CHANGED fnState from \(fnBefore) to \(fnAfterSignal)", category: "Settings")
         }
 
         // Schedule activateSettings with post-check
@@ -262,7 +268,7 @@ class SettingsManager {
                 kCFPreferencesCurrentUser,
                 kCFPreferencesCurrentHost
             ) as? NSNumber
-            print("[Apply] fnState BEFORE activateSettings: \(fnBeforeActivate?.boolValue ?? false)")
+            Log.debug("[Apply] fnState BEFORE activateSettings: \(fnBeforeActivate?.boolValue ?? false)", category: "Settings")
 
             let task = Process()
             task.executableURL = URL(fileURLWithPath: bin)
@@ -275,9 +281,9 @@ class SettingsManager {
                 task.waitUntilExit()
                 let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
                 let errStr = String(data: errData, encoding: .utf8) ?? ""
-                print("[Apply] activateSettings exit=\(task.terminationStatus) stderr=\(errStr.isEmpty ? "(empty)" : errStr)")
+                Log.debug("[Apply] activateSettings exit=\(task.terminationStatus) stderr=\(errStr.isEmpty ? "(empty)" : errStr)", category: "Settings")
             } catch {
-                print("[Apply] activateSettings FAILED: \(error)")
+                Log.error("[Apply] activateSettings FAILED: \(error)", category: "Settings")
             }
 
             // Check if activateSettings changed fnState
@@ -292,24 +298,28 @@ class SettingsManager {
                 kCFPreferencesCurrentUser,
                 kCFPreferencesCurrentHost
             ) as? NSNumber
-            print("[Apply] fnState AFTER activateSettings: \(fnAfterActivate?.boolValue ?? false)")
+            Log.debug("[Apply] fnState AFTER activateSettings: \(fnAfterActivate?.boolValue ?? false)", category: "Settings")
             if fnBeforeActivate?.boolValue != fnAfterActivate?.boolValue {
-                print("[Apply] ⚠️ WARNING: activateSettings CHANGED fnState from \(fnBeforeActivate?.boolValue ?? false) to \(fnAfterActivate?.boolValue ?? false)!")
+                Log.warning("[Apply] activateSettings CHANGED fnState from \(fnBeforeActivate?.boolValue ?? false) to \(fnAfterActivate?.boolValue ?? false)", category: "Settings")
             }
         }
-        print("[Apply] keyboard changes dispatched")
+        Log.debug("[Apply] keyboard changes dispatched", category: "Settings")
     }
 
     // MARK: - Mouse Speed
 
     /// Read current mouse speed from HIDSystem without touching preferences.
     func readCurrentMouseSpeed() -> Double? {
-        withHIDSystemConnection { connection in
+        let speed = withHIDSystemConnection { connection -> Double? in
             var speed = 0.0
             let result = _IOHIDGetAccelerationWithKey(connection, mouseAccelerationKey, &speed)
             guard result == kIOReturnSuccess else { return nil }
             return speed
         }
+        if speed == nil {
+            Log.error("Failed to read current mouse speed from IOKit", category: "Mouse")
+        }
+        return speed
     }
 
     /// Change mouse speed immediately via IOKit HIDSystem.
@@ -317,9 +327,9 @@ class SettingsManager {
     func applyMouseSpeed(_ speed: Double) -> Bool {
         let applied = applyMouseSpeedViaIOKit(speed)
         if applied {
-            print("[Settings] Mouse speed: \(speed) via IOKit")
+            Log.info("Mouse speed set to \(speed) via IOKit", category: "Mouse")
         } else {
-            print("[Settings] IOKit failed for mouse speed")
+            Log.error("IOKit failed to set mouse speed", category: "Mouse")
         }
         return applied
     }
@@ -355,7 +365,7 @@ class SettingsManager {
             }
             captured[entry.id] = domainValues
         }
-        print("[Settings] Captured \(captured.count) gesture value(s)")
+        Log.debug("Captured \(captured.count) gesture value(s)", category: "Settings")
         return captured
     }
 
@@ -376,7 +386,7 @@ class SettingsManager {
             }
         }
         synchronizePreferences(domains: updatedDomains)
-        print("[Settings] Wrote \(entries.count) gesture(s) = \(value)")
+        Log.info("Wrote \(entries.count) gesture(s) = \(value)", category: "Settings")
     }
 
     /// Restore gestures from previously captured values.
@@ -395,7 +405,7 @@ class SettingsManager {
             }
         }
         synchronizePreferences(domains: updatedDomains)
-        print("[Settings] Restored \(capturedValues.count) gesture(s)")
+        Log.info("Restored \(capturedValues.count) gesture(s)", category: "Settings")
     }
 
     // MARK: - Unified Keyboard Settings (fn keys + shortcuts + gestures)
@@ -418,11 +428,11 @@ class SettingsManager {
         let shortcutIDsToDisable = previousShortcuts.filter(\.value).map(\.key)
         let previousGestures = gestures.isEmpty ? nil : captureGestureValues(entries: gestures)
 
-        print("[Keyboard] Captured: fnKeys=\(previousFnKeys as Any), shortcuts=\(previousShortcuts.count), gestures=\(previousGestures?.count ?? 0)")
+        Log.debug("Captured: fnKeys=\(previousFnKeys as Any), shortcuts=\(previousShortcuts.count), gestures=\(previousGestures?.count ?? 0)", category: "Keyboard")
 
         // 2. Apply gaming-mode changes
         if functionKeysEnabled {
-            print("[Keyboard] Activating fn keys: \(previousFnKeys ?? false) → true")
+            Log.info("Activating fn keys: \(previousFnKeys ?? false) → true", category: "Keyboard")
             writeFunctionKeys(enabled: true)
         }
         if !shortcutIDsToDisable.isEmpty {
@@ -451,7 +461,7 @@ class SettingsManager {
         // 1. Restore fn keys
         if changes.functionKeysChanged {
             let restoreTo = changes.previousFunctionKeysEnabled ?? false
-            print("[Keyboard] Restoring fn keys → \(restoreTo)")
+            Log.info("Restoring fn keys → \(restoreTo)", category: "Keyboard")
             writeFunctionKeys(enabled: restoreTo)
             didChange = true
         }
@@ -476,7 +486,7 @@ class SettingsManager {
             applyKeyboardChanges()
         }
 
-        print("[Keyboard] Restore complete (changed=\(didChange))")
+        Log.info("Keyboard restore complete (changed=\(didChange))", category: "Keyboard")
     }
 
     // MARK: - Helpers
@@ -534,13 +544,20 @@ class SettingsManager {
 
         let actualCount = bufferSize / MemoryLayout<kinfo_proc>.stride
 
+        var signaled = false
         for i in 0..<actualCount {
             let name = withUnsafePointer(to: procs[i].kp_proc.p_comm) { ptr in
                 String(cString: UnsafeRawPointer(ptr).assumingMemoryBound(to: CChar.self))
             }
             if name == "cfprefsd" {
                 kill(procs[i].kp_proc.p_pid, SIGHUP)
+                signaled = true
             }
+        }
+        if signaled {
+            Log.debug("Sent SIGHUP to cfprefsd", category: "Settings")
+        } else {
+            Log.warning("cfprefsd not found for SIGHUP", category: "Settings")
         }
     }
 

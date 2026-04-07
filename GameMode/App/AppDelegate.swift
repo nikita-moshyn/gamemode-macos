@@ -43,15 +43,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         func log(_ message: String) {
             let elapsed = CFAbsoluteTimeGetCurrent() - startedAt
-            print("[\(name)#\(id)] \(message) (+\(String(format: "%.3f", elapsed))s)")
+            Log.debug("[\(name)#\(id)] \(message) (+\(String(format: "%.3f", elapsed))s)", category: "GameMode")
         }
     }
 
     // MARK: - Lifecycle
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        Log.info("App launching...", category: "App")
+
         // Request notification permission
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        Log.debug("Notification permission requested", category: "App")
 
         // Prevent macOS from killing us during shutdown before cleanup
         ProcessInfo.processInfo.disableSuddenTermination()
@@ -60,9 +63,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if configStore.config.system.restoreOnLaunch {
             recoverIfNeeded()
         }
+        Log.debug("Crash recovery check complete (restoreOnLaunch=\(configStore.config.system.restoreOnLaunch))", category: "App")
 
         // First launch: detect shortcuts and scan for games
         if configStore.isFirstLaunch {
+            Log.info("First launch detected, running initial setup", category: "App")
             let detectedShortcuts = AppDetector.detectAvailableShortcuts()
             configStore.mergeDetectedShortcuts(detectedShortcuts)
 
@@ -70,11 +75,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             for game in detectedGames {
                 configStore.addApp(game)
             }
+            Log.info("Initial setup: \(detectedShortcuts.count) shortcuts, \(detectedGames.count) games detected", category: "App")
         }
 
         // Setup menu bar
         setupStatusItem()
         buildMenu()
+        Log.debug("Menu bar configured", category: "App")
 
         // Start app monitoring
         appMonitor = AppMonitor(
@@ -83,18 +90,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             onDeactivate: { [weak self] in self?.deactivateGamingMode() }
         )
         appMonitor.checkRunningApps()
+        Log.info("App monitoring started", category: "App")
 
         // Check Accessibility permission (needed for global hotkeys)
         if !HotkeyManager.isAccessibilityGranted {
+            Log.info("Accessibility permission not granted, requesting", category: "App")
             HotkeyManager.requestAccessibilityPermission()
+        } else {
+            Log.info("Accessibility permission granted", category: "App")
         }
 
         // Register global hotkeys
         registerHotkeys()
         observeConfigurationChanges()
+        Log.debug("Hotkeys registered", category: "App")
 
         // Start Sparkle updater
         updaterController.startUpdater()
+        Log.debug("Updater started", category: "App")
 
         // Register for shutdown/restart
         NSWorkspace.shared.notificationCenter.addObserver(
@@ -109,6 +122,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             name: NSApplication.willTerminateNotification,
             object: nil
         )
+
+        Log.info("App ready", category: "App")
     }
 
     private func observeConfigurationChanges() {
@@ -120,6 +135,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             .sink { [weak self] isEnabled in
                 self?.buildMenu()
                 guard let self, !isEnabled else { return }
+                Log.info("Mouse management disabled via config", category: "Mouse")
                 self.handleMouseSubsystemDisabled()
             }
             .store(in: &cancellables)
@@ -248,7 +264,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func requestGameModeTransition(to desiredState: Bool, source: String) {
-        print("[GameMode] request source=\(source) target=\(desiredState ? "on" : "off")")
+        Log.info("Game mode transition request: source=\(source) target=\(desiredState ? "on" : "off")", category: "GameMode")
         applyVisibleGamingModeState(desiredState)
 
         transitionStateQueue.async { [weak self] in
@@ -379,6 +395,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             : adjustments.joined(separator: ", ").prefix(1).uppercased()
               + adjustments.joined(separator: ", ").dropFirst() + " adjusted"
 
+        Log.info("Gaming mode activated: \(body)", category: "GameMode")
         enqueueNotification(title: "Game Mode — Active", body: body, trace: trace)
     }
 
@@ -403,6 +420,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let body = didVerifyFunctionKeys
                 ? "All settings restored"
                 : "Mouse restored, but standard function keys could not be confirmed"
+            Log.info("Gaming mode deactivated: \(body)", category: "GameMode")
             enqueueNotification(title: "Game Mode — Deactivated", body: body, trace: trace)
         } else {
             enqueueNotification(
@@ -484,7 +502,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func handleMouseSubsystemDisabled() {
         Self.settingsQueue.async { [weak self] in
             guard let self else { return }
-
+            Log.info("Mouse subsystem disabled, restoring mouse state", category: "Mouse")
             let trace = self.nextTrace(named: "MouseDisable")
             trace.log("mouse subsystem disabled")
 
@@ -511,28 +529,32 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Actions
 
     @objc private func toggleGameModeMenuAction() {
+        Log.info("Gaming mode toggled via menu", category: "GameMode")
         requestGameModeTransition(to: !isGamingMode, source: "menu")
     }
 
     private func toggleGameModeHotkey() {
+        Log.info("Gaming mode toggled via hotkey", category: "GameMode")
         requestGameModeTransition(to: !isGamingMode, source: "hotkey")
     }
 
     @objc private func toggleMouseBoostMenuAction() {
+        Log.info("Mouse boost toggled via menu", category: "Mouse")
         toggleMouseBoost(source: "menu")
     }
 
     private func toggleMouseBoostHotkey() {
+        Log.info("Mouse boost toggled via hotkey", category: "Mouse")
         toggleMouseBoost(source: "hotkey")
     }
 
     private func toggleMouseBoost(source: String) {
         guard configStore.config.mouse.isEnabled else {
-            print("[MouseBoost] Ignored \(source) toggle because mouse management is disabled")
+            Log.debug("Mouse boost ignored (\(source)): mouse management is disabled", category: "Mouse")
             return
         }
         guard isGamingMode else {
-            print("[MouseBoost] Ignored \(source) toggle because gaming mode is inactive")
+            Log.debug("Mouse boost ignored (\(source)): gaming mode is inactive", category: "Mouse")
             return
         }
 
@@ -653,6 +675,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func openSettings() {
+        Log.info("Settings window opened", category: "App")
         if let window = settingsWindow, window.isVisible {
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
@@ -698,6 +721,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func settingsWindowWillClose(_ notification: Notification) {
         guard let window = notification.object as? NSWindow, window === settingsWindow else { return }
+        Log.info("Settings window closed", category: "App")
         configStore.stopAccessibilityPolling()
         NotificationCenter.default.removeObserver(self, name: NSWindow.willCloseNotification, object: window)
 
@@ -730,6 +754,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func quitApp() {
+        Log.info("App quit requested", category: "App")
         if isGamingMode && configStore.config.system.restoreOnShutdown {
             deactivateSync()
         }
@@ -739,12 +764,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Shutdown / Termination
 
     @objc private func systemWillPowerOff(_ notification: Notification) {
+        Log.warning("System shutdown detected", category: "App")
         if isGamingMode && configStore.config.system.restoreOnShutdown {
             deactivateSync()
         }
     }
 
     @objc private func appWillTerminate(_ notification: Notification) {
+        Log.info("App terminating", category: "App")
         if isGamingMode && configStore.config.system.restoreOnShutdown {
             deactivateSync()
         }
@@ -752,6 +779,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Synchronous deactivation for shutdown/quit paths where the process is about to exit.
     private func deactivateSync() {
+        Log.info("Synchronous deactivation for shutdown/quit", category: "GameMode")
         let state = StateJournal.load()
 
         settingsManager.restoreKeyboardSettings(from: state.appliedChanges)
@@ -775,7 +803,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         Self.settingsQueue.async {
             let state = StateJournal.load()
             guard state.isActive else { return }
-            print("[AppDelegate] Recovering from stale gaming state...")
+            Log.warning("Recovering from stale gaming state...", category: "GameMode")
 
             settingsManager.restoreKeyboardSettings(from: state.appliedChanges)
 
@@ -800,6 +828,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Force Restore (called from SystemSettingsView)
 
     func forceRestoreAllSettings() {
+        Log.warning("Force restore initiated", category: "GameMode")
         // Update UI immediately
         isGamingMode = false
         updateMenuBarIcon()
@@ -831,6 +860,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func resetAllSavedData() {
+        Log.warning("Reset all saved data initiated", category: "GameMode")
         Self.settingsQueue.async { [weak self] in
             guard let self else { return }
 
@@ -957,7 +987,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Use Carbon TIS API to cycle to the next input source
         guard let sourceList = TISCreateInputSourceList(nil, false)?.takeRetainedValue() as? [TISInputSource],
               sourceList.count >= 2 else {
-            print("[Hotkeys] Cannot toggle input source: fewer than 2 sources available")
+            Log.warning("Cannot toggle input source: fewer than 2 sources available", category: "Hotkeys")
             return
         }
 
@@ -972,7 +1002,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         guard selectableSources.count >= 2 else {
-            print("[Hotkeys] Fewer than 2 selectable input sources")
+            Log.warning("Fewer than 2 selectable input sources", category: "Hotkeys")
             return
         }
 
@@ -998,7 +1028,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Wrap around to first source
         let target = nextSource ?? selectableSources[0]
         TISSelectInputSource(target)
-        print("[Hotkeys] Switched input source")
+        Log.info("Switched input source", category: "Hotkeys")
     }
 
     // MARK: - Notifications
