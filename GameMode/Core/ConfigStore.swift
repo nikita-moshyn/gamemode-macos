@@ -103,6 +103,11 @@ class ConfigStore: ObservableObject {
         config.monitoredApps[index].isEnabled.toggle()
     }
 
+    func toggleAppRefreshRateLock(id: UUID) {
+        guard let index = config.monitoredApps.firstIndex(where: { $0.id == id }) else { return }
+        config.monitoredApps[index].lockRefreshRate.toggle()
+    }
+
     // MARK: - Shortcut Management
 
     /// Merge detected shortcuts with current config.

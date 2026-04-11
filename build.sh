@@ -24,6 +24,7 @@ SOURCES=(
     "GameMode/Models/AppHotkey.swift"
     "GameMode/Models/KeyCodeMap.swift"
     "GameMode/Models/LogLevel.swift"
+    "GameMode/Models/DisplayConfig.swift"
     # Core
     "GameMode/Core/ConfigStore.swift"
     "GameMode/Core/Log.swift"
@@ -32,6 +33,8 @@ SOURCES=(
     "GameMode/Core/AppMonitor.swift"
     "GameMode/Core/SettingsManager.swift"
     "GameMode/Core/HotkeyManager.swift"
+    "GameMode/Core/RefreshRateLock.swift"
+    "GameMode/Core/PowerManager.swift"
     # Views
     "GameMode/Views/SettingsWindow.swift"
     "GameMode/Views/GeneralSettingsView.swift"
@@ -41,6 +44,7 @@ SOURCES=(
     "GameMode/Views/AppPickerSheet.swift"
     "GameMode/Views/MouseSettingsView.swift"
     "GameMode/Views/SystemSettingsView.swift"
+    "GameMode/Views/DisplaySettingsView.swift"
     "GameMode/Views/LogsSettingsView.swift"
     "GameMode/Views/ShortcutRecorderView.swift"
     "GameMode/Views/HotkeysSettingsView.swift"
@@ -102,6 +106,7 @@ build_with_swiftc() {
         -framework AppKit \
         -framework Carbon \
         -framework IOKit \
+        -framework QuartzCore \
         -framework ServiceManagement \
         -framework UserNotifications \
         -O \

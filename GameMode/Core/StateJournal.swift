@@ -33,6 +33,8 @@ struct AppliedChanges: Codable {
     var previousMouseSpeed: Double?
     var gesturesChanged: Bool
     var previousGestureValues: GesturePreferenceValues?
+    var lowPowerModeChanged: Bool
+    var previousLowPowerModeEnabled: Bool?
 
     static let empty = AppliedChanges(
         functionKeysChanged: false,
@@ -42,7 +44,9 @@ struct AppliedChanges: Codable {
         mouseSpeedChanged: false,
         previousMouseSpeed: nil,
         gesturesChanged: false,
-        previousGestureValues: nil
+        previousGestureValues: nil,
+        lowPowerModeChanged: false,
+        previousLowPowerModeEnabled: nil
     )
 
     // Migration-safe decoder: older journals won't have gesture fields
@@ -70,12 +74,15 @@ struct AppliedChanges: Codable {
             forKey: .previousGestureValues
         )?.mapValues { ["legacy": Optional($0)] }
         previousGestureValues = nestedOptionalValues ?? nestedValues ?? legacyValues
+        lowPowerModeChanged = try container.decodeIfPresent(Bool.self, forKey: .lowPowerModeChanged) ?? false
+        previousLowPowerModeEnabled = try container.decodeIfPresent(Bool.self, forKey: .previousLowPowerModeEnabled)
     }
 
     init(functionKeysChanged: Bool, previousFunctionKeysEnabled: Bool? = nil,
          disabledShortcutIDs: [Int], previousShortcutStates: [Int: Bool]? = nil,
          mouseSpeedChanged: Bool, previousMouseSpeed: Double?, gesturesChanged: Bool = false,
-         previousGestureValues: GesturePreferenceValues? = nil) {
+         previousGestureValues: GesturePreferenceValues? = nil,
+         lowPowerModeChanged: Bool = false, previousLowPowerModeEnabled: Bool? = nil) {
         self.functionKeysChanged = functionKeysChanged
         self.previousFunctionKeysEnabled = previousFunctionKeysEnabled
         self.disabledShortcutIDs = disabledShortcutIDs
@@ -84,6 +91,8 @@ struct AppliedChanges: Codable {
         self.previousMouseSpeed = previousMouseSpeed
         self.gesturesChanged = gesturesChanged
         self.previousGestureValues = previousGestureValues
+        self.lowPowerModeChanged = lowPowerModeChanged
+        self.previousLowPowerModeEnabled = previousLowPowerModeEnabled
     }
 }
 

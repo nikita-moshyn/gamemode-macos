@@ -36,6 +36,10 @@
 		BB000100000000000000001E /* LogLevel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000200000000000000001E /* LogLevel.swift */; };
 		BB000100000000000000001F /* Log.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000200000000000000001F /* Log.swift */; };
 		BB0001000000000000000020 /* LogsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0002000000000000000020 /* LogsSettingsView.swift */; };
+		BB0001000000000000000021 /* DisplayConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0002000000000000000021 /* DisplayConfig.swift */; };
+		BB0001000000000000000022 /* RefreshRateLock.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0002000000000000000022 /* RefreshRateLock.swift */; };
+		BB0001000000000000000023 /* PowerManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0002000000000000000023 /* PowerManager.swift */; };
+		BB0001000000000000000024 /* DisplaySettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0002000000000000000024 /* DisplaySettingsView.swift */; };
 		CC0001000000000000000001 /* MonitoredAppTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0002000000000000000001 /* MonitoredAppTests.swift */; };
 		CC0001000000000000000002 /* GameModeConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0002000000000000000002 /* GameModeConfigTests.swift */; };
 		CC0001000000000000000003 /* AppHotkeyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0002000000000000000003 /* AppHotkeyTests.swift */; };
@@ -89,6 +93,10 @@
 		BB000200000000000000001E /* LogLevel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogLevel.swift; sourceTree = "<group>"; };
 		BB000200000000000000001F /* Log.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Log.swift; sourceTree = "<group>"; };
 		BB0002000000000000000020 /* LogsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogsSettingsView.swift; sourceTree = "<group>"; };
+		BB0002000000000000000021 /* DisplayConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayConfig.swift; sourceTree = "<group>"; };
+		BB0002000000000000000022 /* RefreshRateLock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RefreshRateLock.swift; sourceTree = "<group>"; };
+		BB0002000000000000000023 /* PowerManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PowerManager.swift; sourceTree = "<group>"; };
+		BB0002000000000000000024 /* DisplaySettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplaySettingsView.swift; sourceTree = "<group>"; };
 		CC0002000000000000000001 /* MonitoredAppTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitoredAppTests.swift; sourceTree = "<group>"; };
 		CC0002000000000000000002 /* GameModeConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameModeConfigTests.swift; sourceTree = "<group>"; };
 		CC0002000000000000000003 /* AppHotkeyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppHotkeyTests.swift; sourceTree = "<group>"; };
@@ -180,6 +188,8 @@
 				BB0002000000000000000007 /* StateJournal.swift */,
 				BB0002000000000000000018 /* HotkeyManager.swift */,
 				BB000200000000000000001F /* Log.swift */,
+				BB0002000000000000000022 /* RefreshRateLock.swift */,
+				BB0002000000000000000023 /* PowerManager.swift */,
 			);
 			path = Core;
 			sourceTree = "<group>";
@@ -195,6 +205,7 @@
 				BB0002000000000000000016 /* AppHotkey.swift */,
 				BB0002000000000000000017 /* KeyCodeMap.swift */,
 				BB000200000000000000001E /* LogLevel.swift */,
+				BB0002000000000000000021 /* DisplayConfig.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -213,6 +224,7 @@
 				BB000200000000000000001B /* GeneralSettingsView.swift */,
 				BB000200000000000000001C /* AboutView.swift */,
 				BB0002000000000000000020 /* LogsSettingsView.swift */,
+				BB0002000000000000000024 /* DisplaySettingsView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -336,6 +348,10 @@
 				BB000100000000000000001E /* LogLevel.swift in Sources */,
 				BB000100000000000000001F /* Log.swift in Sources */,
 				BB0001000000000000000020 /* LogsSettingsView.swift in Sources */,
+				BB0001000000000000000021 /* DisplayConfig.swift in Sources */,
+				BB0001000000000000000022 /* RefreshRateLock.swift in Sources */,
+				BB0001000000000000000023 /* PowerManager.swift in Sources */,
+				BB0001000000000000000024 /* DisplaySettingsView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

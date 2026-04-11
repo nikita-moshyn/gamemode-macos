@@ -14,6 +14,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     case hotkeys
     case applications
     case mouse
+    case display
     case system
     case logs
 
@@ -26,6 +27,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .hotkeys:      return "Hotkeys"
         case .applications: return "Applications"
         case .mouse:        return "Mouse"
+        case .display:      return "Display"
         case .system:       return "System"
         case .logs:         return "Logs"
         }
@@ -38,6 +40,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .hotkeys:      return "command.square"
         case .applications: return "app.dashed"
         case .mouse:        return "computermouse"
+        case .display:      return "display"
         case .system:       return "wrench.and.screwdriver"
         case .logs:         return "doc.text"
         }
@@ -96,6 +99,8 @@ struct SettingsWindow: View {
                 configStore: configStore,
                 onApplyConfiguredMouseSpeed: onApplyConfiguredMouseSpeed
             )
+        case .display:
+            DisplaySettingsView(configStore: configStore)
         case .system:
             SystemSettingsView(
                 configStore: configStore,

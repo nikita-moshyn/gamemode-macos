@@ -21,6 +21,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private let settingsManager = SettingsManager()
     private var appMonitor: AppMonitor!
     private var hotkeyManager = HotkeyManager()
+    private let refreshRateLock = RefreshRateLock()
     private var settingsWindow: NSWindow?
     private var aboutWindow: NSWindow?
     private let updaterController = SPUStandardUpdaterController(startingUpdater: false, updaterDelegate: nil, userDriverDelegate: nil)
@@ -87,7 +88,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         appMonitor = AppMonitor(
             configStore: configStore,
             onActivate: { [weak self] in self?.activateGamingMode() },
-            onDeactivate: { [weak self] in self?.deactivateGamingMode() }
+            onDeactivate: { [weak self] in self?.deactivateGamingMode() },
+            onMonitoredAppLaunched: { [weak self] app in self?.handleMonitoredAppLaunched(app) },
+            onMonitoredAppTerminated: { [weak self] _ in self?.handleMonitoredAppTerminated() }
         )
         appMonitor.checkRunningApps()
         Log.info("App monitoring started", category: "App")
@@ -345,6 +348,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             : nil
         let shouldApplyMouseBoost = mouseBaselineSpeed != nil
 
+        // --- Low Power Mode ---
+        let shouldDisableLPM = config.display.autoDisableLowPowerMode
+            && PowerManager.isLowPowerModeEnabled
+            && PowerManager.isBatteryAboveThreshold(config.display.lowPowerModeBatteryThreshold)
+        let previousLPMEnabled: Bool? = shouldDisableLPM ? true : nil
+        var didDisableLPM = false
+        if shouldDisableLPM {
+            trace.log("disabling Low Power Mode (battery above \(config.display.lowPowerModeBatteryThreshold)%)")
+            didDisableLPM = PowerManager.setLowPowerMode(enabled: false)
+            if didDisableLPM {
+                trace.log("Low Power Mode disabled")
+            } else {
+                trace.log("Low Power Mode disable failed")
+            }
+        }
+
         // --- Journal ---
         let state = GameModeState(
             isActive: true,
@@ -357,7 +376,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 mouseSpeedChanged: shouldApplyMouseBoost,
                 previousMouseSpeed: mouseBaselineSpeed,
                 gesturesChanged: !gesturesToDisable.isEmpty,
-                previousGestureValues: snapshot.previousGestureValues
+                previousGestureValues: snapshot.previousGestureValues,
+                lowPowerModeChanged: didDisableLPM,
+                previousLowPowerModeEnabled: previousLPMEnabled
             )
         )
         StateJournal.write(state)
@@ -386,10 +407,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             baselineSpeed: didApplyMouseBoost ? mouseBaselineSpeed : nil
         )
 
+        // --- Refresh Rate Lock ---
+        evaluateRefreshRateLock(config: config, trace: trace)
+
         var adjustments: [String] = []
         if config.functionKeysInGamingMode || !snapshot.shortcutIDsToDisable.isEmpty { adjustments.append("keyboard") }
         if !gesturesToDisable.isEmpty { adjustments.append("gestures") }
         if didApplyMouseBoost { adjustments.append("mouse sensitivity") }
+        if refreshRateLock.isActive { adjustments.append("refresh rate lock") }
+        if didDisableLPM { adjustments.append("low power mode disabled") }
         let body = adjustments.isEmpty
             ? "Gaming mode enabled"
             : adjustments.joined(separator: ", ").prefix(1).uppercased()
@@ -403,10 +429,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let state = StateJournal.load()
         trace.log("journal load complete")
 
+        // --- Refresh Rate Lock ---
+        refreshRateLock.stop()
+        trace.log("refresh rate lock stopped")
+
         // --- Keyboard settings (fn keys + shortcuts + gestures) ---
         trace.log("keyboard restore start")
         settingsManager.restoreKeyboardSettings(from: state.appliedChanges)
         trace.log("keyboard restore complete")
+
+        // --- Low Power Mode restore ---
+        if state.appliedChanges.lowPowerModeChanged,
+           let previousLPM = state.appliedChanges.previousLowPowerModeEnabled {
+            trace.log("restoring Low Power Mode to \(previousLPM)")
+            PowerManager.setLowPowerMode(enabled: previousLPM)
+        }
 
         let didVerifyFunctionKeys = !state.appliedChanges.functionKeysChanged || verifyFunctionKeys(
             expected: state.appliedChanges.previousFunctionKeysEnabled ?? false,
@@ -524,6 +561,45 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.async { [weak self] in
             self?.showNotification(title: title, body: body)
         }
+    }
+
+    // MARK: - Refresh Rate Lock
+
+    /// Evaluate whether the refresh rate lock should be active based on config and running apps.
+    private func evaluateRefreshRateLock(config: GameModeConfig, trace: TransitionTrace? = nil) {
+        guard config.display.isRefreshRateLockEnabled,
+              RefreshRateLock.isProMotionAvailable else {
+            if refreshRateLock.isActive {
+                refreshRateLock.stop()
+                trace?.log("refresh rate lock stopped (not needed)")
+            }
+            return
+        }
+
+        let needsLock = appMonitor.anyActiveAppNeedsRefreshRateLock()
+
+        if needsLock && !refreshRateLock.isActive {
+            refreshRateLock.start()
+            trace?.log("refresh rate lock started")
+        } else if !needsLock && refreshRateLock.isActive {
+            refreshRateLock.stop()
+            trace?.log("refresh rate lock stopped (no qualifying apps)")
+        }
+    }
+
+    private func handleMonitoredAppLaunched(_ app: MonitoredApp) {
+        guard isGamingMode else { return }
+        let config = currentConfigSnapshot()
+        let trace = nextTrace(named: "AppLaunch")
+        trace.log("monitored app launched: \(app.name) (lockRefreshRate=\(app.lockRefreshRate))")
+        evaluateRefreshRateLock(config: config, trace: trace)
+    }
+
+    private func handleMonitoredAppTerminated() {
+        guard isGamingMode else { return }
+        let config = currentConfigSnapshot()
+        let trace = nextTrace(named: "AppTerminate")
+        evaluateRefreshRateLock(config: config, trace: trace)
     }
 
     // MARK: - Actions
@@ -782,7 +858,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         Log.info("Synchronous deactivation for shutdown/quit", category: "GameMode")
         let state = StateJournal.load()
 
+        refreshRateLock.stop()
         settingsManager.restoreKeyboardSettings(from: state.appliedChanges)
+
+        if state.appliedChanges.lowPowerModeChanged,
+           let previousLPM = state.appliedChanges.previousLowPowerModeEnabled {
+            PowerManager.setLowPowerMode(enabled: previousLPM)
+        }
 
         if restoreMouseState(from: state) {
             StateJournal.clear()
@@ -806,6 +888,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             Log.warning("Recovering from stale gaming state...", category: "GameMode")
 
             settingsManager.restoreKeyboardSettings(from: state.appliedChanges)
+
+            if state.appliedChanges.lowPowerModeChanged,
+               let previousLPM = state.appliedChanges.previousLowPowerModeEnabled {
+                Log.info("Restoring Low Power Mode to \(previousLPM) during crash recovery", category: "Power")
+                PowerManager.setLowPowerMode(enabled: previousLPM)
+            }
 
             if self.restoreMouseState(from: state) {
                 StateJournal.clear()
@@ -831,6 +919,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         Log.warning("Force restore initiated", category: "GameMode")
         // Update UI immediately
         isGamingMode = false
+        refreshRateLock.stop()
         updateMenuBarIcon()
         buildMenu()
 
@@ -840,6 +929,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let journalState = StateJournal.load()
 
             settingsManager.restoreKeyboardSettings(from: journalState.appliedChanges)
+
+            if journalState.appliedChanges.lowPowerModeChanged,
+               let previousLPM = journalState.appliedChanges.previousLowPowerModeEnabled {
+                PowerManager.setLowPowerMode(enabled: previousLPM)
+            }
 
             if self.restoreMouseState(from: journalState) {
                 StateJournal.clear()
@@ -891,7 +985,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let state = StateJournal.load()
         guard state.isActive else { return true }
 
+        refreshRateLock.stop()
         settingsManager.restoreKeyboardSettings(from: state.appliedChanges)
+
+        if state.appliedChanges.lowPowerModeChanged,
+           let previousLPM = state.appliedChanges.previousLowPowerModeEnabled {
+            PowerManager.setLowPowerMode(enabled: previousLPM)
+        }
 
         guard restoreMouseState(from: state) else {
             return false
