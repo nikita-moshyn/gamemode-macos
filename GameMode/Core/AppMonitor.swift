@@ -2,7 +2,7 @@
 //  AppMonitor.swift
 //  GameMode
 //
-//  Created by Nikita Moshyn on 11/10/2026.
+//  Created by Nikita Moshyn on 12/10/2026.
 //  Copyright © 2026 Nikita Moshyn. All rights reserved.
 //
 
@@ -20,13 +20,14 @@ class AppMonitor {
     private let onMonitoredAppLaunched: ((MonitoredApp) -> Void)?
     private let onMonitoredAppTerminated: ((MonitoredApp) -> Void)?
     private let runningBundleIDs: () -> [String]
+    private var activeProcessCounts: [String: Int] = [:]
 
-    /// Number of monitored apps currently running.
+    /// Number of monitored processes currently running.
     /// Gaming mode activates at 1, deactivates at 0.
-    private(set) var activeGameCount = 0
+    var activeGameCount: Int { activeProcessCounts.values.reduce(0, +) }
 
-    /// Bundle IDs of monitored apps currently running.
-    private(set) var activeAppBundleIDs = Set<String>()
+    /// A bundle ID stays active until its last monitored process exits.
+    var activeAppBundleIDs: Set<String> { Set(activeProcessCounts.keys) }
 
     // MARK: - Init
 
@@ -65,12 +66,10 @@ class AppMonitor {
     /// Count how many monitored apps are already running.
     /// Call this on launch to handle the case where games started before us.
     func checkRunningApps(activateIfRunning: Bool = true) {
-        activeGameCount = 0
-        activeAppBundleIDs.removeAll()
+        activeProcessCounts.removeAll()
         for bundleID in runningBundleIDs() {
             if matchingMonitoredApp(bundleID: bundleID) != nil {
-                activeGameCount += 1
-                activeAppBundleIDs.insert(bundleID)
+                activeProcessCounts[bundleID, default: 0] += 1
             }
         }
         if activeGameCount > 0 {
@@ -94,8 +93,7 @@ class AppMonitor {
     func appLaunched(bundleID: String) {
         guard let matchedEntry = matchingMonitoredApp(bundleID: bundleID) else { return }
 
-        activeGameCount += 1
-        activeAppBundleIDs.insert(bundleID)
+        activeProcessCounts[bundleID, default: 0] += 1
         Log.info("Monitored app launched: \(bundleID) (active count: \(activeGameCount))", category: "AppMonitor")
 
         if activeGameCount == 1 {
@@ -114,10 +112,11 @@ class AppMonitor {
     }
 
     func appTerminated(bundleID: String) {
-        guard let matchedEntry = matchingMonitoredApp(bundleID: bundleID) else { return }
+        guard let matchedEntry = matchingMonitoredApp(bundleID: bundleID),
+              let processCount = activeProcessCounts[bundleID] else { return }
 
-        activeGameCount = max(0, activeGameCount - 1)
-        activeAppBundleIDs.remove(bundleID)
+        if processCount > 1 { activeProcessCounts[bundleID] = processCount - 1 }
+        else { activeProcessCounts.removeValue(forKey: bundleID) }
         Log.info("Monitored app terminated: \(bundleID) (active count: \(activeGameCount))", category: "AppMonitor")
 
         if activeGameCount == 0 {
@@ -138,7 +137,7 @@ class AppMonitor {
 
     /// Check if any currently active monitored app requires refresh rate lock.
     func anyActiveAppNeedsRefreshRateLock() -> Bool {
-        for bundleID in activeAppBundleIDs {
+        for bundleID in activeProcessCounts.keys {
             if let entry = matchingMonitoredApp(bundleID: bundleID), entry.lockRefreshRate {
                 return true
             }

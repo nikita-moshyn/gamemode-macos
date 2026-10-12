@@ -2,7 +2,7 @@
 //  RecoveryControllerTests.swift
 //  GameMode
 //
-//  Created by Nikita Moshyn on 11/10/2026.
+//  Created by Nikita Moshyn on 12/10/2026.
 //  Copyright © 2026 Nikita Moshyn. All rights reserved.
 //
 
@@ -527,6 +527,110 @@ final class PowerSettingsParsingTests: XCTestCase {
 }
 
 final class AppMonitorRecoveryTests: XCTestCase {
+    @MainActor
+    func testDuplicateBundleProcessesRetainRefreshLockUntilFinalExit() {
+        let suite = "GameMode.AppMonitorRecoveryTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = ConfigStore(defaults: defaults, isPreview: true)
+        store.config.monitoredApps = [
+            MonitoredApp(id: UUID(), bundleID: "test.game.locked", name: "Locked", isEnabled: true, source: .manual, lockRefreshRate: true),
+            MonitoredApp(id: UUID(), bundleID: "test.game.other", name: "Other", isEnabled: true, source: .manual)
+        ]
+        var activations = 0
+        var deactivations = 0
+        var displayRequirements: [Bool] = []
+        weak var observedMonitor: AppMonitor?
+        let displayChanged: (MonitoredApp) -> Void = { _ in
+            displayRequirements.append(observedMonitor?.anyActiveAppNeedsRefreshRateLock() == true)
+        }
+        let monitor = AppMonitor(configStore: store, onActivate: { activations += 1 }, onDeactivate: { deactivations += 1 }, onMonitoredAppLaunched: displayChanged, onMonitoredAppTerminated: displayChanged, runningBundleIDs: { [] })
+        observedMonitor = monitor
+        let events: [(bundleID: String, launches: Bool, count: Int, needsLock: Bool)] = [
+            ("test.game.locked", true, 1, true),
+            ("test.game.locked", true, 2, true),
+            ("test.game.other", true, 3, true),
+            ("test.game.locked", false, 2, true),
+            ("test.game.locked", false, 1, false),
+            ("test.game.other", false, 0, false)
+        ]
+        for event in events {
+            if event.launches { monitor.appLaunched(bundleID: event.bundleID) }
+            else { monitor.appTerminated(bundleID: event.bundleID) }
+            drainMonitorCallbacks()
+            XCTAssertEqual(monitor.activeGameCount, event.count)
+            XCTAssertEqual(monitor.anyActiveAppNeedsRefreshRateLock(), event.needsLock)
+            XCTAssertEqual(monitor.activeAppBundleIDs.contains("test.game.locked"), event.needsLock)
+            XCTAssertEqual(activations, 1)
+            XCTAssertEqual(deactivations, event.count == 0 ? 1 : 0)
+        }
+        XCTAssertEqual(displayRequirements, [true, true, true, true, false, false])
+        XCTAssertTrue(monitor.activeAppBundleIDs.isEmpty)
+    }
+
+    @MainActor
+    func testAlreadyRunningDuplicateBundleProcessesRetainRefreshLockUntilFinalExit() {
+        let suite = "GameMode.AppMonitorRecoveryTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = ConfigStore(defaults: defaults, isPreview: true)
+        store.config.monitoredApps = [MonitoredApp(id: UUID(), bundleID: "test.game", name: "Game", isEnabled: true, source: .manual, lockRefreshRate: true)]
+        var deactivations = 0
+        let monitor = AppMonitor(configStore: store, onActivate: {}, onDeactivate: { deactivations += 1 }, runningBundleIDs: { ["test.game", "test.game", "test.unmonitored"] })
+        monitor.checkRunningApps(activateIfRunning: false)
+        XCTAssertEqual(monitor.activeGameCount, 2)
+        XCTAssertEqual(monitor.activeAppBundleIDs, ["test.game"])
+
+        monitor.appTerminated(bundleID: "test.game")
+        drainMonitorCallbacks()
+        XCTAssertEqual(monitor.activeGameCount, 1)
+        XCTAssertEqual(monitor.activeAppBundleIDs, ["test.game"])
+        XCTAssertTrue(monitor.anyActiveAppNeedsRefreshRateLock())
+        XCTAssertEqual(deactivations, 0)
+
+        monitor.appTerminated(bundleID: "test.game")
+        drainMonitorCallbacks()
+        XCTAssertEqual(monitor.activeGameCount, 0)
+        XCTAssertTrue(monitor.activeAppBundleIDs.isEmpty)
+        XCTAssertFalse(monitor.anyActiveAppNeedsRefreshRateLock())
+        XCTAssertEqual(deactivations, 1)
+    }
+
+    @MainActor
+    func testUntrackedAndRepeatedTerminationsDoNotDeactivateRunningGames() {
+        let suite = "GameMode.AppMonitorRecoveryTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = ConfigStore(defaults: defaults, isPreview: true)
+        store.config.monitoredApps = [
+            MonitoredApp(id: UUID(), bundleID: "test.game.running", name: "Running", isEnabled: true, source: .manual, lockRefreshRate: true),
+            MonitoredApp(id: UUID(), bundleID: "test.game.untracked", name: "Untracked", isEnabled: true, source: .manual)
+        ]
+        var deactivations = 0
+        let monitor = AppMonitor(configStore: store, onActivate: {}, onDeactivate: { deactivations += 1 }, runningBundleIDs: { [] })
+        monitor.appLaunched(bundleID: "test.game.running")
+        monitor.appTerminated(bundleID: "test.game.untracked")
+        drainMonitorCallbacks()
+        XCTAssertEqual(monitor.activeGameCount, 1)
+        XCTAssertEqual(monitor.activeAppBundleIDs, ["test.game.running"])
+        XCTAssertTrue(monitor.anyActiveAppNeedsRefreshRateLock())
+        XCTAssertEqual(deactivations, 0)
+
+        monitor.appTerminated(bundleID: "test.game.running")
+        monitor.appTerminated(bundleID: "test.game.running")
+        drainMonitorCallbacks()
+        XCTAssertEqual(monitor.activeGameCount, 0)
+        XCTAssertTrue(monitor.activeAppBundleIDs.isEmpty)
+        XCTAssertEqual(deactivations, 1)
+    }
+
+    @MainActor
+    private func drainMonitorCallbacks() {
+        let drained = expectation(description: "App monitor callbacks drained")
+        DispatchQueue.main.async { drained.fulfill() }
+        wait(for: [drained], timeout: 1)
+    }
+
     @MainActor
     func testDisplayCallbacksTrackQualifyingAppsWhileGameModeRemainsActive() {
         let suite = "GameMode.AppMonitorRecoveryTests.\(UUID().uuidString)"
