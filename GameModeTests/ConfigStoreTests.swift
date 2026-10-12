@@ -2,7 +2,7 @@
 //  ConfigStoreTests.swift
 //  GameMode
 //
-//  Created by Nikita Moshyn on 11/10/2026.
+//  Created by Nikita Moshyn on 12/10/2026.
 //  Copyright © 2026 Nikita Moshyn. All rights reserved.
 //
 
@@ -56,6 +56,15 @@ final class ConfigStoreTests: XCTestCase {
 
         let store2 = ConfigStore(defaults: testDefaults)
         XCTAssertTrue(store2.config.functionKeysInGamingMode)
+    }
+
+    func test_betaOptInPersistsAndOptOutSurvivesRelaunch() {
+        XCTAssertFalse(store.config.receivesBetaUpdates)
+        store.config.receivesBetaUpdates = true
+        let optedIn = ConfigStore(defaults: testDefaults)
+        XCTAssertEqual(optedIn.config.allowedUpdateChannels, ["beta", "rc"])
+        optedIn.config.receivesBetaUpdates = false
+        XCTAssertTrue(ConfigStore(defaults: testDefaults).config.allowedUpdateChannels.isEmpty)
     }
 
     func test_corruptConfigurationIsPreservedUntilExplicitReset() {
@@ -255,6 +264,7 @@ final class ConfigStoreTests: XCTestCase {
 
     func test_resetAllSavedData() {
         // Mutate config
+        store.config.receivesBetaUpdates = true
         store.config.isInputGuardEnabled = true
         store.config.functionKeysInGamingMode = true
         store.config.shortcuts[0].disableInGamingMode = true
@@ -265,6 +275,7 @@ final class ConfigStoreTests: XCTestCase {
 
         store.resetAllSavedData()
 
+        XCTAssertFalse(store.config.receivesBetaUpdates)
         XCTAssertFalse(store.config.functionKeysInGamingMode)
         XCTAssertFalse(store.config.isInputGuardEnabled)
         XCTAssertTrue(store.config.shortcuts.allSatisfy { !$0.disableInGamingMode })

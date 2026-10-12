@@ -2,7 +2,7 @@
 //  AppDelegate.swift
 //  GameMode
 //
-//  Created by Nikita Moshyn on 11/10/2026.
+//  Created by Nikita Moshyn on 12/10/2026.
 //  Copyright © 2026 Nikita Moshyn. All rights reserved.
 //
 
@@ -44,7 +44,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var settingsWindow: NSWindow?
     private var aboutWindow: NSWindow?
     private let windowPresentation = AppWindowPresentation()
-    private lazy var updaterController = SPUStandardUpdaterController(startingUpdater: false, updaterDelegate: nil, userDriverDelegate: nil)
+    private lazy var updaterController = SPUStandardUpdaterController(startingUpdater: false, updaterDelegate: self, userDriverDelegate: nil)
     private var cancellables = Set<AnyCancellable>()
     private var targetGameModeState = false
     private var appliedGameModeState = false
@@ -149,6 +149,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func observeConfigurationChanges() {
+        configStore.$config.map(\.receivesBetaUpdates).removeDuplicates().dropFirst().receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.updaterController.updater.resetUpdateCycleAfterShortDelay() }
+            .store(in: &cancellables)
         ShortcutRecordingSession.shared.$activeID.removeDuplicates().sink { [weak self] recorder in
             guard let self else { return }
             if recorder != nil { self.hotkeyManager.unregisterAll() }
@@ -734,6 +737,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         updaterController.checkForUpdates(nil)
     }
 
+    // MARK: - Update Channels
+
+    func allowedChannels(for updater: SPUUpdater) -> Set<String> {
+        configStore.config.allowedUpdateChannels
+    }
+
+    func updater(_ updater: SPUUpdater, shouldProceedWithUpdate updateItem: SUAppcastItem, updateCheck: SPUUpdateCheck) throws {
+        // Recheck consent if the user changed it while the feed was downloading.
+        guard let channel = updateItem.channel, !channel.isEmpty else { return }
+        guard configStore.config.allowedUpdateChannels.contains(channel) else {
+            throw NSError(domain: "GameMode.UpdateChannels", code: 1, userInfo: [NSLocalizedDescriptionKey: "This update requires Receive beta updates to be enabled in General settings."])
+        }
+    }
+
     private func registerHotkeys() {
         if !Self.isPreview && !Self.isTesting {
             hotkeyManager.register(hotkeys: configStore.config.hotkeys, handlers: [
@@ -812,3 +829,5 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
 
 }
+
+extension AppDelegate: SPUUpdaterDelegate {}

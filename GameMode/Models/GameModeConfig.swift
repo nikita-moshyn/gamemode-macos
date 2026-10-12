@@ -2,7 +2,7 @@
 //  GameModeConfig.swift
 //  GameMode
 //
-//  Created by Nikita Moshyn on 11/10/2026.
+//  Created by Nikita Moshyn on 12/10/2026.
 //  Copyright © 2026 Nikita Moshyn. All rights reserved.
 //
 
@@ -22,6 +22,12 @@ struct GameModeConfig: Codable {
     var display: DisplayConfig
     var loggingEnabled: Bool
     var logLevel: LogLevel
+    var receivesBetaUpdates: Bool
+
+    /// Sparkle always includes stable updates; prereleases require explicit consent.
+    var allowedUpdateChannels: Set<String> {
+        receivesBetaUpdates ? ["beta", "rc"] : []
+    }
 
     /// The master switch gates effects without clearing the user's selections.
     var inputGuardPolicy: InputGuardPolicy {
@@ -63,9 +69,10 @@ struct GameModeConfig: Codable {
         display = try container.decodeIfPresent(DisplayConfig.self, forKey: .display) ?? DisplayConfig()
         loggingEnabled = try container.decodeIfPresent(Bool.self, forKey: .loggingEnabled) ?? true
         logLevel = try container.decodeIfPresent(LogLevel.self, forKey: .logLevel) ?? .info
+        receivesBetaUpdates = try container.decodeIfPresent(Bool.self, forKey: .receivesBetaUpdates) ?? false
     }
 
-    init(monitoredApps: [MonitoredApp], shortcuts: [ShortcutEntry], functionKeysInGamingMode: Bool, mouse: MouseConfig, system: SystemConfig, gestures: [GestureEntry] = GestureEntry.defaults, hotkeys: [AppHotkey] = AppHotkey.defaults, display: DisplayConfig = DisplayConfig(), loggingEnabled: Bool = true, logLevel: LogLevel = .info, isInputGuardEnabled: Bool = false) {
+    init(monitoredApps: [MonitoredApp], shortcuts: [ShortcutEntry], functionKeysInGamingMode: Bool, mouse: MouseConfig, system: SystemConfig, gestures: [GestureEntry] = GestureEntry.defaults, hotkeys: [AppHotkey] = AppHotkey.defaults, display: DisplayConfig = DisplayConfig(), loggingEnabled: Bool = true, logLevel: LogLevel = .info, isInputGuardEnabled: Bool = false, receivesBetaUpdates: Bool = false) {
         self.monitoredApps = monitoredApps
         self.shortcuts = shortcuts
         self.functionKeysInGamingMode = functionKeysInGamingMode
@@ -77,6 +84,7 @@ struct GameModeConfig: Codable {
         self.display = display
         self.loggingEnabled = loggingEnabled
         self.logLevel = logLevel
+        self.receivesBetaUpdates = receivesBetaUpdates
     }
 }
 

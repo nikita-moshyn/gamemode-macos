@@ -2,7 +2,7 @@
 //  GeneralSettingsView.swift
 //  GameMode
 //
-//  Created by Nikita Moshyn on 10/10/2026.
+//  Created by Nikita Moshyn on 12/10/2026.
 //  Copyright © 2026 Nikita Moshyn. All rights reserved.
 //
 
@@ -59,11 +59,19 @@ struct GeneralSettingsView: View {
                 Text("Keep GameMode available in the menu bar whenever you sign in.")
             }
 
+            Section {
+                Toggle("Receive beta updates", isOn: $configStore.config.receivesBetaUpdates)
+                Button("Check for Updates…") { onCheckForUpdates?() }
+                    .disabled(onCheckForUpdates == nil || configStore.isPreview)
+            } header: {
+                Text("Updates")
+            } footer: {
+                Text("Try beta and release candidate builds before the next stable release. These builds may be less reliable. Turning this off keeps your installed version until a newer stable release is available.")
+            }
+
             Section("About") {
                 LabeledContent("Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0")
                 LabeledContent("Build", value: Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1")
-                Button("Check for Updates…") { onCheckForUpdates?() }
-                    .disabled(onCheckForUpdates == nil || configStore.isPreview)
                 LabeledContent("License", value: "MIT")
                 LabeledContent("Author", value: "Nikita Moshyn")
             }
