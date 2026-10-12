@@ -2,7 +2,7 @@
 //  AppsSettingsView.swift
 //  GameMode
 //
-//  Created by Nikita Moshyn on 15/03/2026.
+//  Created by Nikita Moshyn on 10/10/2026.
 //  Copyright © 2026 Nikita Moshyn. All rights reserved.
 //
 
@@ -11,9 +11,23 @@ import SwiftUI
 struct AppsSettingsView: View {
     @ObservedObject var configStore: ConfigStore
     @State private var showingAddSheet = false
+    @State private var isScanning = false
+    @State private var scanSummary: String?
 
     var body: some View {
         Form {
+            Section {
+                Text("Game Mode activates when an enabled application launches and restores your settings after the last enabled application quits.")
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("Activation")
+            }
+
+            if configStore.config.monitoredApps.isEmpty {
+                Section {
+                    ContentUnavailableView("No Applications", systemImage: "app.dashed", description: Text("Add an application to enable Game Mode automatically when it launches."))
+                }
+            }
             ForEach(groupedSources, id: \.title) { group in
                 if !group.apps.isEmpty {
                     Section(group.title) {
@@ -30,15 +44,14 @@ struct AppsSettingsView: View {
                         showingAddSheet = true
                     }
 
-                    Button("Re-scan") {
-                        let detected = AppDetector.scanForGames()
-                        for app in detected {
-                            configStore.addApp(app)
-                        }
+                    Button(isScanning ? "Scanning…" : "Scan for Games") { scanForGames() }
+                        .disabled(isScanning)
+                    if isScanning {
+                        ProgressView().controlSize(.small)
                     }
                 }
             } footer: {
-                Text("Gaming mode activates when any enabled app launches.")
+                Text(scanSummary ?? "Add an application or scan for installed games. Turn on the applications that should activate Game Mode.")
                     .foregroundStyle(.secondary)
             }
         }
@@ -77,6 +90,27 @@ struct AppsSettingsView: View {
                         .foregroundStyle(.red)
                 }
                 .buttonStyle(.borderless)
+                .accessibilityLabel("Remove \(app.name)")
+                .help("Remove \(app.name)")
+            }
+        }
+    }
+
+    private func scanForGames() {
+        isScanning = true
+        DispatchQueue.global(qos: .userInitiated).async {
+            let detected = AppDetector.scanForGames()
+            DispatchQueue.main.async {
+                guard configStore.configurationLoadError == nil, !configStore.recoveryRequired, !configStore.isTransitioning else {
+                    isScanning = false
+                    scanSummary = "Scan finished. Finish recovery before adding detected applications."
+                    return
+                }
+                let previousCount = configStore.config.monitoredApps.count
+                for app in detected { configStore.addApp(app) }
+                let added = configStore.config.monitoredApps.count - previousCount
+                scanSummary = added == 0 ? "Scan complete. No new games found." : "Scan complete. Added \(added) \(added == 1 ? "application" : "applications")."
+                isScanning = false
             }
         }
     }

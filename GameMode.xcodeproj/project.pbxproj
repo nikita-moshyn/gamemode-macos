@@ -48,6 +48,11 @@
 		CC0001000000000000000006 /* ConfigStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0002000000000000000006 /* ConfigStoreTests.swift */; };
 		CC0001000000000000000007 /* StateJournalTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0002000000000000000007 /* StateJournalTests.swift */; };
 		BB0001000000000000001A01 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = ADDCA16A2F6E2ADA002C2D4F /* Assets.xcassets */; };
+		DD0001000000000000000001 /* RecoveryController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD0002000000000000000001 /* RecoveryController.swift */; };
+		DD0001000000000000000002 /* MenuToggleRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD0002000000000000000002 /* MenuToggleRow.swift */; };
+		DD0001000000000000000003 /* RecoveryControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD0002000000000000000003 /* RecoveryControllerTests.swift */; };
+		DD0001000000000000000004 /* SettingsPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD0002000000000000000004 /* SettingsPresentationTests.swift */; };
+		DD0001000000000000000005 /* AppWindowPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD0002000000000000000005 /* AppWindowPresentation.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -105,6 +110,11 @@
 		CC0002000000000000000006 /* ConfigStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigStoreTests.swift; sourceTree = "<group>"; };
 		CC0002000000000000000007 /* StateJournalTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StateJournalTests.swift; sourceTree = "<group>"; };
 		CC0002000000000000000008 /* GameModeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = GameModeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		DD0002000000000000000001 /* RecoveryController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoveryController.swift; sourceTree = "<group>"; };
+		DD0002000000000000000002 /* MenuToggleRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuToggleRow.swift; sourceTree = "<group>"; };
+		DD0002000000000000000003 /* RecoveryControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoveryControllerTests.swift; sourceTree = "<group>"; };
+		DD0002000000000000000004 /* SettingsPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsPresentationTests.swift; sourceTree = "<group>"; };
+		DD0002000000000000000005 /* AppWindowPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppWindowPresentation.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -174,6 +184,7 @@
 			children = (
 				BB0002000000000000000001 /* GameModeApp.swift */,
 				BB0002000000000000000002 /* AppDelegate.swift */,
+				DD0002000000000000000005 /* AppWindowPresentation.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -186,6 +197,7 @@
 				BB0002000000000000000005 /* SettingsManager.swift */,
 				BB0002000000000000000006 /* ConfigStore.swift */,
 				BB0002000000000000000007 /* StateJournal.swift */,
+				DD0002000000000000000001 /* RecoveryController.swift */,
 				BB0002000000000000000018 /* HotkeyManager.swift */,
 				BB000200000000000000001F /* Log.swift */,
 				BB0002000000000000000022 /* RefreshRateLock.swift */,
@@ -214,6 +226,7 @@
 			isa = PBXGroup;
 			children = (
 				BB000200000000000000000C /* SettingsWindow.swift */,
+				DD0002000000000000000002 /* MenuToggleRow.swift */,
 				BB000200000000000000000D /* ShortcutsSettingsView.swift */,
 				BB000200000000000000000E /* AppsSettingsView.swift */,
 				BB000200000000000000000F /* AppPickerSheet.swift */,
@@ -239,6 +252,8 @@
 				CC0002000000000000000005 /* SymbolicHotkeysTests.swift */,
 				CC0002000000000000000006 /* ConfigStoreTests.swift */,
 				CC0002000000000000000007 /* StateJournalTests.swift */,
+				DD0002000000000000000004 /* SettingsPresentationTests.swift */,
+				DD0002000000000000000003 /* RecoveryControllerTests.swift */,
 			);
 			path = GameModeTests;
 			sourceTree = "<group>";
@@ -322,16 +337,19 @@
 			files = (
 				BB0001000000000000000001 /* GameModeApp.swift in Sources */,
 				BB0001000000000000000002 /* AppDelegate.swift in Sources */,
+				DD0001000000000000000005 /* AppWindowPresentation.swift in Sources */,
 				BB0001000000000000000003 /* AppMonitor.swift in Sources */,
 				BB0001000000000000000004 /* AppDetector.swift in Sources */,
 				BB0001000000000000000005 /* SettingsManager.swift in Sources */,
 				BB0001000000000000000006 /* ConfigStore.swift in Sources */,
 				BB0001000000000000000007 /* StateJournal.swift in Sources */,
+				DD0001000000000000000001 /* RecoveryController.swift in Sources */,
 				BB0001000000000000000008 /* GameModeConfig.swift in Sources */,
 				BB0001000000000000000009 /* MonitoredApp.swift in Sources */,
 				BB000100000000000000000A /* ShortcutEntry.swift in Sources */,
 				BB000100000000000000000B /* SymbolicHotkeys.swift in Sources */,
 				BB000100000000000000000C /* SettingsWindow.swift in Sources */,
+				DD0001000000000000000002 /* MenuToggleRow.swift in Sources */,
 				BB000100000000000000000D /* ShortcutsSettingsView.swift in Sources */,
 				BB000100000000000000000E /* AppsSettingsView.swift in Sources */,
 				BB000100000000000000000F /* AppPickerSheet.swift in Sources */,
@@ -366,6 +384,8 @@
 				CC0001000000000000000005 /* SymbolicHotkeysTests.swift in Sources */,
 				CC0001000000000000000006 /* ConfigStoreTests.swift in Sources */,
 				CC0001000000000000000007 /* StateJournalTests.swift in Sources */,
+				DD0001000000000000000004 /* SettingsPresentationTests.swift in Sources */,
+				DD0001000000000000000003 /* RecoveryControllerTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

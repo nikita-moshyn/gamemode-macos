@@ -2,114 +2,119 @@
 //  ShortcutRecorderView.swift
 //  GameMode
 //
-//  Created by Nikita Moshyn on 15/03/2026.
+//  Created by Nikita Moshyn on 10/10/2026.
 //  Copyright © 2026 Nikita Moshyn. All rights reserved.
 //
 
 import SwiftUI
 import AppKit
 
-/// A view that lets the user record a keyboard shortcut by pressing keys.
+/// Owns the single local event monitor shared by all shortcut recorders.
+final class ShortcutRecordingSession: ObservableObject {
+    static let shared = ShortcutRecordingSession()
+    @Published private(set) var activeID: UUID?
+    private var monitor: Any?
+    private let addMonitor: (@escaping (NSEvent) -> NSEvent?) -> Any?
+    private let removeMonitor: (Any) -> Void
+
+    init(addMonitor: @escaping (@escaping (NSEvent) -> NSEvent?) -> Any? = { NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: $0) }, removeMonitor: @escaping (Any) -> Void = { NSEvent.removeMonitor($0) }) {
+        self.addMonitor = addMonitor
+        self.removeMonitor = removeMonitor
+    }
+
+    func start(id: UUID, onRecord: @escaping (UInt16, UInt) -> Void) {
+        stop()
+        activeID = id
+        monitor = addMonitor { [weak self] event in
+            guard let self, self.activeID == id else { return event }
+            if event.keyCode == 53 {
+                self.stop()
+                return nil
+            }
+            let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            let hasModifier = !modifiers.intersection([.command, .control, .option, .shift]).isEmpty
+            if hasModifier, !event.isARepeat {
+                self.stop()
+                onRecord(event.keyCode, modifiers.rawValue)
+            }
+            return nil
+        }
+        if monitor == nil { activeID = nil }
+    }
+
+    func stop(id: UUID? = nil) {
+        guard id == nil || activeID == id else { return }
+        if let monitor {
+            removeMonitor(monitor)
+            self.monitor = nil
+        }
+        activeID = nil
+    }
+
+    deinit {
+        if let monitor { removeMonitor(monitor) }
+    }
+}
+
 struct ShortcutRecorderView: View {
     @Binding var keyCode: UInt16?
     @Binding var modifiers: UInt
     var onChange: (() -> Void)?
+    var label = "Keyboard shortcut"
+    @State private var recorderID = UUID()
+    @ObservedObject private var recordingSession = ShortcutRecordingSession.shared
 
-    @State private var isRecording = false
-    @State private var monitor: Any?
+    private var isRecording: Bool { recordingSession.activeID == recorderID }
 
     var body: some View {
         HStack(spacing: 6) {
-            Button(action: {
+            Button(isRecording ? "Press shortcut…" : displayString) {
                 if isRecording {
-                    stopRecording()
+                    recordingSession.stop(id: recorderID)
                 } else {
-                    startRecording()
+                    recordingSession.start(id: recorderID) { recordedKey, recordedModifiers in
+                        keyCode = recordedKey
+                        modifiers = recordedModifiers
+                        onChange?()
+                    }
                 }
-            }) {
-                Text(isRecording ? "Press shortcut..." : displayString)
-                    .font(.system(.body, design: .rounded))
-                    .frame(minWidth: 130)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(isRecording
-                                  ? Color.accentColor.opacity(0.15)
-                                  : Color.secondary.opacity(0.1))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(isRecording ? Color.accentColor : Color.clear, lineWidth: 1)
-                    )
             }
-            .buttonStyle(.plain)
+            .monospaced()
+            .frame(minWidth: 132)
+            .accessibilityLabel(label)
+            .accessibilityValue(isRecording ? "Recording" : displayString)
+            .help(isRecording ? "Press a shortcut with a modifier key, or Escape to cancel." : "Record a keyboard shortcut")
 
             if keyCode != nil {
-                Button(action: { clear() }) {
+                Button {
+                    recordingSession.stop(id: recorderID)
+                    keyCode = nil
+                    modifiers = 0
+                    onChange?()
+                } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .foregroundColor(.secondary)
-                        .font(.system(size: 14))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .accessibilityLabel("Clear \(label)")
                 .help("Clear shortcut")
             }
         }
+        .onDisappear { recordingSession.stop(id: recorderID) }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { _ in
+            recordingSession.stop(id: recorderID)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { _ in
+            recordingSession.stop(id: recorderID)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
+            recordingSession.stop(id: recorderID)
+        }
     }
-
-    // MARK: - Display
 
     private var displayString: String {
-        guard let kc = keyCode else { return "Click to record" }
-        var parts: [String] = []
-        let flags = NSEvent.ModifierFlags(rawValue: modifiers)
-        if flags.contains(.control) { parts.append("⌃") }
-        if flags.contains(.option)  { parts.append("⌥") }
-        if flags.contains(.shift)   { parts.append("⇧") }
-        if flags.contains(.command) { parts.append("⌘") }
-        parts.append(KeyCodeMap.name(for: kc))
-        return parts.joined()
-    }
-
-    // MARK: - Recording
-
-    private func startRecording() {
-        isRecording = true
-        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-
-            // Escape cancels recording
-            if event.keyCode == 53 {
-                stopRecording()
-                return nil
-            }
-
-            // Require at least one modifier key
-            let hasModifier = mods.contains(.command) || mods.contains(.control)
-                || mods.contains(.option) || mods.contains(.shift)
-
-            if hasModifier {
-                keyCode = event.keyCode
-                modifiers = mods.rawValue
-                stopRecording()
-                onChange?()
-            }
-
-            return nil  // consume the event
-        }
-    }
-
-    private func stopRecording() {
-        isRecording = false
-        if let m = monitor {
-            NSEvent.removeMonitor(m)
-            monitor = nil
-        }
-    }
-
-    private func clear() {
-        keyCode = nil
-        modifiers = 0
-        onChange?()
+        guard let keyCode else { return "Record Shortcut" }
+        let shortcut = AppHotkey(id: "recorder", name: label, keyCode: keyCode, modifiers: modifiers, isEnabled: true)
+        return shortcut.displayString
     }
 }

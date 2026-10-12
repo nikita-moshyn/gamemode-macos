@@ -2,7 +2,7 @@
 //  AppHotkey.swift
 //  GameMode
 //
-//  Created by Nikita Moshyn on 15/03/2026.
+//  Created by Nikita Moshyn on 10/10/2026.
 //  Copyright © 2026 Nikita Moshyn. All rights reserved.
 //
 
@@ -20,6 +20,16 @@ struct AppHotkey: Codable, Identifiable, Hashable {
     var modifiers: UInt
     /// Whether this hotkey is active.
     var isEnabled: Bool
+
+    /// Current interface copy, independent of names persisted by older versions.
+    var displayName: String {
+        switch id {
+        case "toggleGameMode": return "Toggle Game Mode"
+        case "toggleMouseBoost": return "Toggle Mouse Preset"
+        case "toggleInputSource": return "Toggle Input Source"
+        default: return name
+        }
+    }
 
     /// Human-readable shortcut string (e.g. "⌘⇧G").
     var displayString: String {
@@ -39,14 +49,14 @@ struct AppHotkey: Codable, Identifiable, Hashable {
     static let defaults: [AppHotkey] = [
         AppHotkey(
             id: "toggleGameMode",
-            name: "Toggle Gaming Mode",
+            name: "Toggle Game Mode",
             keyCode: 5,        // G
             modifiers: NSEvent.ModifierFlags([.command, .shift]).rawValue,
             isEnabled: true
         ),
         AppHotkey(
             id: "toggleMouseBoost",
-            name: "Toggle Mouse Boost",
+            name: "Toggle Mouse Preset",
             keyCode: nil,
             modifiers: 0,
             isEnabled: false

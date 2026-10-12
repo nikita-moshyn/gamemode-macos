@@ -2,7 +2,7 @@
 //  ConfigStore.swift
 //  GameMode
 //
-//  Created by Nikita Moshyn on 15/03/2026.
+//  Created by Nikita Moshyn on 11/10/2026.
 //  Copyright © 2026 Nikita Moshyn. All rights reserved.
 //
 
@@ -25,6 +25,18 @@ class ConfigStore: ObservableObject {
     /// Runtime-only state for the active session. Does not trigger config persistence.
     @Published var isMouseBoostApplied: Bool = false
     @Published var sessionMouseBaselineSpeed: Double?
+    @Published var isTransitioning = false
+    @Published var recoveryRequired = false
+    @Published var recoveryMessage: String?
+    @Published var configurationLoadError: String?
+    @Published var requestedSettingsSection: String?
+
+    let isPreview: Bool
+    var preferences: UserDefaults { defaults }
+
+    var canChangeMode: Bool {
+        !isTransitioning && !recoveryRequired && configurationLoadError == nil
+    }
 
     /// Live accessibility permission status. Polled while settings window is open.
     @Published var isAccessibilityGranted: Bool = false
@@ -33,6 +45,7 @@ class ConfigStore: ObservableObject {
 
     private let key: String
     private let defaults: UserDefaults
+    private let shortcutDetector: () -> [ShortcutEntry]
 
     // MARK: - Init
 
@@ -41,9 +54,14 @@ class ConfigStore: ObservableObject {
         isAccessibilityGranted = HotkeyManager.isAccessibilityGranted
     }
 
-    init(defaults: UserDefaults, key: String = "GameModeConfig_v2") {
+    init(defaults: UserDefaults, key: String = "GameModeConfig_v2", isPreview: Bool = false, shortcutDetector: (() -> [ShortcutEntry])? = nil) {
         self.defaults = defaults
         self.key = key
+        self.isPreview = isPreview
+        self.shortcutDetector = shortcutDetector ?? {
+            guard !isPreview else { return [] }
+            return AppDetector.detectAvailableShortcuts()
+        }
         let initialLog: (level: LogLevel, message: String)
         if let data = defaults.data(forKey: key),
            let decoded = try? JSONDecoder().decode(GameModeConfig.self, from: data) {
@@ -52,7 +70,12 @@ class ConfigStore: ObservableObject {
         } else {
             let defaultConfig = GameModeConfig.defaults
             self.config = defaultConfig
-            initialLog = (.info, "Using default config (first launch)")
+            if defaults.object(forKey: key) != nil {
+                configurationLoadError = "Your saved configuration could not be read. It has been preserved. Reset Saved Configuration to use defaults after resolving any recovery state."
+                initialLog = (.error, "Saved configuration is unreadable; original data preserved")
+            } else {
+                initialLog = (.info, "Using default config (first launch)")
+            }
         }
         Log.bootstrap(initialLog.level, initialLog.message, category: "Config", config: config)
     }
@@ -60,6 +83,7 @@ class ConfigStore: ObservableObject {
     // MARK: - Persistence
 
     func save() {
+        guard configurationLoadError == nil else { return }
         guard let data = try? JSONEncoder().encode(config) else {
             Log.error("Config save failed: could not encode", category: "Config")
             return
@@ -69,7 +93,11 @@ class ConfigStore: ObservableObject {
     }
 
     func resetAllSavedData() {
+        if let original = defaults.object(forKey: key), configurationLoadError != nil {
+            defaults.set(original, forKey: "\(key)_unreadable_\(UUID().uuidString)")
+        }
         defaults.removeObject(forKey: key)
+        configurationLoadError = nil
         config = GameModeConfig.defaults
         isGamingMode = false
         isMouseBoostApplied = false
@@ -79,7 +107,7 @@ class ConfigStore: ObservableObject {
 
     /// True if this is the first launch (no saved config found).
     var isFirstLaunch: Bool {
-        defaults.data(forKey: key) == nil
+        defaults.object(forKey: key) == nil
     }
 
     // MARK: - App Management
@@ -108,13 +136,23 @@ class ConfigStore: ObservableObject {
         config.monitoredApps[index].lockRefreshRate.toggle()
     }
 
+    func setManagedDisplay(id: String, name: String, isEnabled: Bool) {
+        config.display.setDisplayEnabled(isEnabled, id: id, name: name)
+        Log.info("Display preference updated: \(name) (\(id)) => \(isEnabled)", category: "Config")
+    }
+
     // MARK: - Shortcut Management
+
+    func refreshDetectedShortcuts() {
+        guard configurationLoadError == nil else { return }
+        mergeDetectedShortcuts(shortcutDetector())
+    }
 
     /// Merge detected shortcuts with current config.
     /// Adds new ones (disabled by default), preserves existing toggle state.
     func mergeDetectedShortcuts(_ detected: [ShortcutEntry]) {
-        let existingIDs = Set(config.shortcuts.map { $0.id })
-        let newEntries = detected.filter { !existingIDs.contains($0.id) }
+        var existingIDs = Set(config.shortcuts.map { $0.id })
+        let newEntries = detected.filter { existingIDs.insert($0.id).inserted }
             .map { entry in
                 ShortcutEntry(
                     id: entry.id,

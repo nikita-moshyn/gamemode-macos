@@ -2,7 +2,7 @@
 //  AppMonitor.swift
 //  GameMode
 //
-//  Created by Nikita Moshyn on 15/03/2026.
+//  Created by Nikita Moshyn on 11/10/2026.
 //  Copyright © 2026 Nikita Moshyn. All rights reserved.
 //
 
@@ -19,6 +19,7 @@ class AppMonitor {
     private let onDeactivate: () -> Void
     private let onMonitoredAppLaunched: ((MonitoredApp) -> Void)?
     private let onMonitoredAppTerminated: ((MonitoredApp) -> Void)?
+    private let runningBundleIDs: () -> [String]
 
     /// Number of monitored apps currently running.
     /// Gaming mode activates at 1, deactivates at 0.
@@ -29,17 +30,14 @@ class AppMonitor {
 
     // MARK: - Init
 
-    init(configStore: ConfigStore,
-         onActivate: @escaping () -> Void,
-         onDeactivate: @escaping () -> Void,
-         onMonitoredAppLaunched: ((MonitoredApp) -> Void)? = nil,
-         onMonitoredAppTerminated: ((MonitoredApp) -> Void)? = nil) {
+    init(configStore: ConfigStore, onActivate: @escaping () -> Void, onDeactivate: @escaping () -> Void, onMonitoredAppLaunched: ((MonitoredApp) -> Void)? = nil, onMonitoredAppTerminated: ((MonitoredApp) -> Void)? = nil, runningBundleIDs: @escaping () -> [String] = { NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier) }) {
 
         self.configStore = configStore
         self.onActivate = onActivate
         self.onDeactivate = onDeactivate
         self.onMonitoredAppLaunched = onMonitoredAppLaunched
         self.onMonitoredAppTerminated = onMonitoredAppTerminated
+        self.runningBundleIDs = runningBundleIDs
 
         let center = NSWorkspace.shared.notificationCenter
 
@@ -66,20 +64,18 @@ class AppMonitor {
 
     /// Count how many monitored apps are already running.
     /// Call this on launch to handle the case where games started before us.
-    func checkRunningApps() {
+    func checkRunningApps(activateIfRunning: Bool = true) {
         activeGameCount = 0
         activeAppBundleIDs.removeAll()
-        for app in NSWorkspace.shared.runningApplications {
-            if shouldMonitor(app) {
+        for bundleID in runningBundleIDs() {
+            if matchingMonitoredApp(bundleID: bundleID) != nil {
                 activeGameCount += 1
-                if let bundleID = app.bundleIdentifier {
-                    activeAppBundleIDs.insert(bundleID)
-                }
+                activeAppBundleIDs.insert(bundleID)
             }
         }
         if activeGameCount > 0 {
             Log.info("\(activeGameCount) monitored app(s) already running", category: "AppMonitor")
-            DispatchQueue.main.async { self.onActivate() }
+            if activateIfRunning { DispatchQueue.main.async { self.onActivate() } }
         } else {
             Log.debug("No monitored apps currently running", category: "AppMonitor")
         }
@@ -90,9 +86,13 @@ class AppMonitor {
     @objc private func appDidLaunch(_ notification: Notification) {
         guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey]
                 as? NSRunningApplication,
-              let bundleID = app.bundleIdentifier,
-              let matchedEntry = matchingMonitoredApp(bundleID: bundleID)
+              let bundleID = app.bundleIdentifier
         else { return }
+        appLaunched(bundleID: bundleID)
+    }
+
+    func appLaunched(bundleID: String) {
+        guard let matchedEntry = matchingMonitoredApp(bundleID: bundleID) else { return }
 
         activeGameCount += 1
         activeAppBundleIDs.insert(bundleID)
@@ -108,9 +108,13 @@ class AppMonitor {
     @objc private func appDidTerminate(_ notification: Notification) {
         guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey]
                 as? NSRunningApplication,
-              let bundleID = app.bundleIdentifier,
-              let matchedEntry = matchingMonitoredApp(bundleID: bundleID)
+              let bundleID = app.bundleIdentifier
         else { return }
+        appTerminated(bundleID: bundleID)
+    }
+
+    func appTerminated(bundleID: String) {
+        guard let matchedEntry = matchingMonitoredApp(bundleID: bundleID) else { return }
 
         activeGameCount = max(0, activeGameCount - 1)
         activeAppBundleIDs.remove(bundleID)
@@ -124,11 +128,6 @@ class AppMonitor {
     }
 
     // MARK: - Matching
-
-    private func shouldMonitor(_ app: NSRunningApplication) -> Bool {
-        guard let bundleID = app.bundleIdentifier else { return false }
-        return matchingMonitoredApp(bundleID: bundleID) != nil
-    }
 
     private func matchingMonitoredApp(bundleID: String) -> MonitoredApp? {
         configStore.config.monitoredApps.first { entry in

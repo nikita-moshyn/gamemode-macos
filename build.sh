@@ -29,6 +29,7 @@ SOURCES=(
     "GameMode/Core/ConfigStore.swift"
     "GameMode/Core/Log.swift"
     "GameMode/Core/StateJournal.swift"
+    "GameMode/Core/RecoveryController.swift"
     "GameMode/Core/AppDetector.swift"
     "GameMode/Core/AppMonitor.swift"
     "GameMode/Core/SettingsManager.swift"
@@ -37,6 +38,7 @@ SOURCES=(
     "GameMode/Core/PowerManager.swift"
     # Views
     "GameMode/Views/SettingsWindow.swift"
+    "GameMode/Views/MenuToggleRow.swift"
     "GameMode/Views/GeneralSettingsView.swift"
     "GameMode/Views/AboutView.swift"
     "GameMode/Views/ShortcutsSettingsView.swift"
@@ -51,6 +53,7 @@ SOURCES=(
     # App
     "GameMode/App/GameModeApp.swift"
     "GameMode/App/AppDelegate.swift"
+    "GameMode/App/AppWindowPresentation.swift"
 )
 
 # Detect architecture
