@@ -2,7 +2,7 @@
 //  SystemSettingsView.swift
 //  GameMode
 //
-//  Created by Nikita Moshyn on 10/10/2026.
+//  Created by Nikita Moshyn on 12/10/2026.
 //  Copyright © 2026 Nikita Moshyn. All rights reserved.
 //
 
@@ -108,7 +108,7 @@ struct SystemSettingsView: View {
             Section {
                 DisclosureGroup("Display Compatibility") {
                     Group {
-                        Toggle("Prefer fixed refresh rate modes", isOn: $configStore.config.display.preferExactModeSwitching)
+                        Toggle("Prefer fixed modes on built-in displays", isOn: $configStore.config.display.preferExactModeSwitching)
                         Toggle("Use ProMotion fallback when needed", isOn: $configStore.config.display.allowOverlayFallback)
                     }
                     .disabled(settingsLocked || !configStore.config.display.isRefreshRateLockEnabled)

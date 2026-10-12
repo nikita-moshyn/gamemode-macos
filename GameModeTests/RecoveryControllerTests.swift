@@ -528,6 +528,46 @@ final class PowerSettingsParsingTests: XCTestCase {
 
 final class AppMonitorRecoveryTests: XCTestCase {
     @MainActor
+    func testOverlappingAppRulesHonorEveryEnabledRefreshRequestWithoutDoubleCounting() {
+        let suite = "GameMode.AppMonitorRecoveryTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = ConfigStore(defaults: defaults, isPreview: true)
+        let bundleID = "com.valvesoftware.steam.app.123"
+        let wildcard = MonitoredApp.presets.first { $0.bundleID == "com.valvesoftware.steam.app.*" }!
+        let game = MonitoredApp(id: UUID(), bundleID: bundleID, name: "Steam game", isEnabled: true, source: .manual, lockRefreshRate: true)
+        var activations = 0
+        var deactivations = 0
+        let monitor = AppMonitor(configStore: store, onActivate: { activations += 1 }, onDeactivate: { deactivations += 1 }, runningBundleIDs: { [bundleID] })
+
+        for entries in [[wildcard, game], [game, wildcard]] {
+            store.config.monitoredApps = entries
+            monitor.checkRunningApps(activateIfRunning: false)
+            XCTAssertEqual(monitor.activeGameCount, 1, "Overlapping rules must count each process once")
+            XCTAssertTrue(monitor.anyActiveAppNeedsRefreshRateLock(), "Rule order must not suppress the game's refresh request")
+            monitor.appTerminated(bundleID: bundleID)
+            drainMonitorCallbacks()
+            XCTAssertEqual(monitor.activeGameCount, 0)
+            XCTAssertFalse(monitor.anyActiveAppNeedsRefreshRateLock())
+        }
+
+        store.config.monitoredApps = [wildcard, game]
+        monitor.appLaunched(bundleID: bundleID)
+        drainMonitorCallbacks()
+        XCTAssertEqual(activations, 1)
+        XCTAssertEqual(monitor.activeGameCount, 1)
+        XCTAssertTrue(monitor.anyActiveAppNeedsRefreshRateLock())
+        store.toggleApp(id: game.id)
+        XCTAssertFalse(monitor.anyActiveAppNeedsRefreshRateLock(), "A disabled matching rule must not request a refresh lock")
+        store.toggleAppRefreshRateLock(id: wildcard.id)
+        XCTAssertTrue(monitor.anyActiveAppNeedsRefreshRateLock(), "An enabled wildcard can independently request the lock")
+        monitor.appTerminated(bundleID: bundleID)
+        drainMonitorCallbacks()
+        XCTAssertEqual(deactivations, 3)
+        XCTAssertEqual(monitor.activeGameCount, 0)
+    }
+
+    @MainActor
     func testDuplicateBundleProcessesRetainRefreshLockUntilFinalExit() {
         let suite = "GameMode.AppMonitorRecoveryTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!

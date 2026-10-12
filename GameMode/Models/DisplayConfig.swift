@@ -2,7 +2,7 @@
 //  DisplayConfig.swift
 //  GameMode
 //
-//  Created by Nikita Moshyn on 11/10/2026.
+//  Created by Nikita Moshyn on 12/10/2026.
 //  Copyright © 2026 Nikita Moshyn. All rights reserved.
 //
 
@@ -26,7 +26,8 @@ struct DisplayConfig: Codable, Equatable {
     /// When true, external high-refresh displays are managed during game mode.
     var manageExternalDisplays: Bool = false
 
-    /// Prefer switching the display to an explicit high-refresh mode when available.
+    /// Prefer a fixed mode over the overlay on built-in displays. Managed external
+    /// displays always use an available higher fixed mode.
     var preferExactModeSwitching: Bool = false
 
     /// Use the hidden overlay fallback for ProMotion displays when exact mode switching

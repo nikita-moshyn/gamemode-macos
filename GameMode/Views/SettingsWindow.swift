@@ -2,10 +2,11 @@
 //  SettingsWindow.swift
 //  GameMode
 //
-//  Created by Nikita Moshyn on 10/10/2026.
+//  Created by Nikita Moshyn on 12/10/2026.
 //  Copyright © 2026 Nikita Moshyn. All rights reserved.
 //
 
+import Combine
 import SwiftUI
 
 enum SettingsSection: String, CaseIterable, Identifiable {
@@ -53,18 +54,21 @@ struct SettingsWindow: View {
     var onCheckForUpdates: (() -> Void)?
 
     @AppStorage("GameModeSettingsSection") private var selectedSectionID = SettingsSection.general.rawValue
+    @State private var selection: SettingsSection?
 
     private var selectedSection: SettingsSection {
-        SettingsSection.resolve(selectedSectionID) ?? .general
+        selection ?? SettingsSection.resolve(selectedSectionID) ?? .general
     }
 
-    private var selection: Binding<SettingsSection> {
-        Binding(get: { selectedSection }, set: { selectedSectionID = $0.rawValue })
+    private var sidebarSelection: Binding<SettingsSection?> {
+        Binding(get: { selection }, set: { section in
+            if let section { selectSection(section) }
+        })
     }
 
     var body: some View {
         NavigationSplitView {
-            List(selection: selection) {
+            List(selection: sidebarSelection) {
                 ForEach(SettingsSection.allCases) { section in
                     Label(section.title, systemImage: section.icon)
                         .tag(section)
@@ -96,7 +100,7 @@ struct SettingsWindow: View {
                             Text(message)
                                 .font(.callout)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                            Button("Review") { selectedSectionID = SettingsSection.system.rawValue }
+                            Button("Review") { selectSection(.system) }
                         }
                         .padding()
                         .background(.background)
@@ -106,16 +110,29 @@ struct SettingsWindow: View {
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 720, minHeight: 500)
         .onAppear {
-            selectedSectionID = selectedSection.rawValue
-            selectRequestedSection()
+            if selection == nil { selectSection(selectedSection) }
         }
-        .onChange(of: configStore.requestedSettingsSection) { _, _ in selectRequestedSection() }
+        // Consume requests after @Published finishes assigning them. This event
+        // stream also avoids onChange/task(id:)'s per-frame guard when clearing
+        // one request and receiving the next in quick succession.
+        .onReceive(configStore.$requestedSettingsSection.compactMap { $0 }.receive(on: RunLoop.main)) { requested in
+            selectRequestedSection(requested)
+        }
     }
 
-    private func selectRequestedSection() {
-        guard let requested = configStore.requestedSettingsSection else { return }
+    private func selectSection(_ section: SettingsSection) {
+        guard selection != section else { return }
+        selection = section
+        selectedSectionID = section.rawValue
+        // Refresh as part of navigation, even if SwiftUI retains the detail view
+        // or coalesces several selection changes into one rendering frame.
+        if section == .shortcuts { configStore.refreshDetectedShortcuts() }
+    }
+
+    private func selectRequestedSection(_ requested: String) {
+        guard configStore.requestedSettingsSection == requested else { return }
         if let section = SettingsSection.resolve(requested) {
-            selectedSectionID = section.rawValue
+            selectSection(section)
         }
         configStore.requestedSettingsSection = nil
     }

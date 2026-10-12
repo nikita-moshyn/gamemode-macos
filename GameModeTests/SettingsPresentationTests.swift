@@ -2,7 +2,7 @@
 //  SettingsPresentationTests.swift
 //  GameMode
 //
-//  Created by Nikita Moshyn on 11/10/2026.
+//  Created by Nikita Moshyn on 12/10/2026.
 //  Copyright © 2026 Nikita Moshyn. All rights reserved.
 //
 
@@ -117,23 +117,49 @@ final class SettingsPresentationTests: XCTestCase {
         window.setFrameOrigin(NSPoint(x: -10000, y: -10000))
         window.orderBack(nil)
         defer { window.orderOut(nil); window.close() }
-        RunLoop.main.run(until: Date().addingTimeInterval(0.15))
+        waitForUI("Input Guard completes its first shortcut scan") {
+            detections > 0 && window.contentView.flatMap { self.findOutlineView(in: $0) }?.selectedRow == 1
+        }
 
         XCTAssertGreaterThan(detections, 0)
         XCTAssertFalse(store.config.isInputGuardEnabled)
         XCTAssertEqual(store.config.shortcuts.first { $0.id == 999 }?.disableInGamingMode, false)
         store.toggleShortcut(id: 999)
-        store.requestedSettingsSection = SettingsSection.general.rawValue
-        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
-        let firstVisitDetections = detections
-        detected.append(ShortcutEntry(id: 1000, name: "Another shortcut", category: "Test", disableInGamingMode: true))
-        store.requestedSettingsSection = SettingsSection.shortcuts.rawValue
-        RunLoop.main.run(until: Date().addingTimeInterval(0.15))
+        let outline = try XCTUnwrap(window.contentView.flatMap { self.findOutlineView(in: $0) })
+        for shortcutID in 1000...1002 {
+            if shortcutID == 1001 { outline.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false) }
+            else { store.requestedSettingsSection = SettingsSection.general.rawValue }
+            waitForUI("General is selected and its navigation request is consumed") {
+                store.requestedSettingsSection == nil
+                    && defaults.string(forKey: "GameModeSettingsSection") == SettingsSection.general.rawValue
+                    && window.contentView.flatMap { self.findOutlineView(in: $0) }?.selectedRow == 0
+            }
+            XCTAssertNil(store.requestedSettingsSection)
+            XCTAssertEqual(defaults.string(forKey: "GameModeSettingsSection"), SettingsSection.general.rawValue)
+            XCTAssertEqual(window.contentView.flatMap { self.findOutlineView(in: $0) }?.selectedRow, 0)
+            let previousDetections = detections
+            detected.append(ShortcutEntry(id: shortcutID, name: "Another shortcut", category: "Test", disableInGamingMode: true))
+            if shortcutID == 1002 { outline.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: false) }
+            else { store.requestedSettingsSection = SettingsSection.shortcuts.rawValue }
+            waitForUI("Revisiting Input Guard discovers shortcut \(shortcutID)") {
+                store.requestedSettingsSection == nil && detections > previousDetections
+                    && window.contentView.flatMap { self.findOutlineView(in: $0) }?.selectedRow == 1
+                    && store.config.shortcuts.contains { $0.id == shortcutID }
+            }
 
-        XCTAssertGreaterThan(detections, firstVisitDetections)
-        XCTAssertEqual(store.config.shortcuts.first { $0.id == 999 }?.disableInGamingMode, true)
-        XCTAssertEqual(store.config.shortcuts.first { $0.id == 1000 }?.disableInGamingMode, false)
-        XCTAssertFalse(store.config.isInputGuardEnabled)
+            XCTAssertEqual(store.config.shortcuts.first { $0.id == 999 }?.disableInGamingMode, true)
+            XCTAssertEqual(store.config.shortcuts.first { $0.id == shortcutID }?.disableInGamingMode, false)
+            XCTAssertFalse(store.config.isInputGuardEnabled)
+        }
+    }
+
+    @MainActor
+    private func waitForUI(_ description: String, timeout: TimeInterval = 3, file: StaticString = #filePath, line: UInt = #line, condition: () -> Bool) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition() && Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+        XCTAssertTrue(condition(), description, file: file, line: line)
     }
 
     @MainActor
@@ -263,6 +289,58 @@ final class SettingsPresentationTests: XCTestCase {
             XCTAssertEqual(Set(ids.values).count, 2)
             XCTAssertEqual(DisplayIdentity.resolvedIDs(Array(displays.reversed())), ids)
         }
+    }
+
+    func testManagedExternalDisplayUsesFixedModeWithoutAdvancedOptIn() throws {
+        let config = DisplayConfig(isRefreshRateLockEnabled: true, manageExternalDisplays: true)
+        let restored = try JSONDecoder().decode(DisplayConfig.self, from: JSONEncoder().encode(config))
+        let display = makeDisplaySnapshot(isBuiltIn: false)
+        XCTAssertFalse(restored.preferExactModeSwitching)
+        XCTAssertEqual(display.preferredMethod(config: restored), .exactMode)
+    }
+
+    func testExternalDisplayManagementHonorsMasterCategoryAndPerDisplayOptOut() {
+        let display = makeDisplaySnapshot(isBuiltIn: false)
+        var config = DisplayConfig(isRefreshRateLockEnabled: true, manageExternalDisplays: true)
+        config.isRefreshRateLockEnabled = false
+        XCTAssertEqual(display.preferredMethod(config: config), .none)
+        config.isRefreshRateLockEnabled = true
+        config.manageExternalDisplays = false
+        XCTAssertEqual(display.preferredMethod(config: config), .none)
+        config.manageExternalDisplays = true
+        config.setDisplayEnabled(false, id: display.id, name: display.name)
+        XCTAssertEqual(display.preferredMethod(config: config), .none)
+        config.setDisplayEnabled(true, id: display.id, name: display.name)
+        XCTAssertEqual(display.preferredMethod(config: config), .exactMode)
+    }
+
+    func testBuiltInDisplayRetainsOverlayFallbackAndFixedModePreference() {
+        let display = makeDisplaySnapshot(isBuiltIn: true)
+        var config = DisplayConfig(isRefreshRateLockEnabled: true)
+        XCTAssertEqual(display.preferredMethod(config: config), .overlayFallback)
+        config.allowOverlayFallback = false
+        XCTAssertEqual(display.preferredMethod(config: config), .none)
+        config.preferExactModeSwitching = true
+        XCTAssertEqual(display.preferredMethod(config: config), .exactMode)
+        config.manageBuiltInProMotionDisplay = false
+        XCTAssertEqual(display.preferredMethod(config: config), .none)
+        config.manageBuiltInProMotionDisplay = true
+        XCTAssertEqual(makeDisplaySnapshot(isBuiltIn: true, isLowPowerModeBlocked: true).preferredMethod(config: config), .none)
+    }
+
+    func testExternalDisplayWithoutHigherFixedModeDoesNotUseOverlay() {
+        let display = makeDisplaySnapshot(isBuiltIn: false, canSwitchToHigherRefreshRate: false)
+        let config = DisplayConfig(isRefreshRateLockEnabled: true, manageExternalDisplays: true)
+        XCTAssertTrue(config.allowOverlayFallback)
+        XCTAssertEqual(display.preferredMethod(config: config), .none)
+    }
+
+    private func makeDisplaySnapshot(isBuiltIn: Bool, canSwitchToHigherRefreshRate: Bool = true, isLowPowerModeBlocked: Bool = false) -> DisplaySnapshot {
+        DisplaySnapshot(id: "test-display", legacyID: "test-legacy", name: "Test display", isBuiltIn: isBuiltIn,
+                        supportsProMotion: isBuiltIn, maximumSupportedRefreshRate: 120,
+                        currentRefreshRate: canSwitchToHigherRefreshRate ? 60 : 120, currentModeIsVariable: false,
+                        highestExactRefreshRate: 120, canSwitchToHigherRefreshRate: canSwitchToHigherRefreshRate,
+                        isLowPowerModeBlocked: isLowPowerModeBlocked, recommendedMethod: .exactMode)
     }
 
     @MainActor

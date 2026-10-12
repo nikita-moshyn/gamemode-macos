@@ -2,7 +2,7 @@
 //  RefreshRateLock.swift
 //  GameMode
 //
-//  Created by Nikita Moshyn on 11/10/2026.
+//  Created by Nikita Moshyn on 12/10/2026.
 //  Copyright © 2026 Nikita Moshyn. All rights reserved.
 //
 
@@ -66,6 +66,21 @@ struct DisplaySnapshot: Identifiable, Hashable {
             return supportsProMotion
         }
         return maximumSupportedRefreshRate > 60.0 || highestExactRefreshRate > 60.0
+    }
+
+    func shouldManage(config: DisplayConfig) -> Bool {
+        guard config.isRefreshRateLockEnabled, config.isDisplayEnabled(id: id, legacyID: legacyID) else { return false }
+        if isBuiltIn { return config.manageBuiltInProMotionDisplay && supportsProMotion }
+        return config.manageExternalDisplays && supportsManagement
+    }
+
+    func preferredMethod(config: DisplayConfig) -> DisplayRefreshMethod {
+        guard shouldManage(config: config), !(isBuiltIn && isLowPowerModeBlocked) else { return .none }
+        // External displays have no overlay fallback, so enabling their management
+        // must select an available higher fixed mode without an advanced opt-in.
+        if canSwitchToHigherRefreshRate && (!isBuiltIn || config.preferExactModeSwitching) { return .exactMode }
+        if isBuiltIn && supportsProMotion && config.allowOverlayFallback { return .overlayFallback }
+        return .none
     }
 
     var roleDescription: String {
@@ -292,7 +307,7 @@ final class RefreshRateLock {
         var result = DisplayRefreshActivationResult()
         let displays = Self.resolvedDisplays()
 
-        for display in displays where shouldManage(display.snapshot, config: config) {
+        for display in displays where display.snapshot.shouldManage(config: config) {
             if display.snapshot.isBuiltIn && display.snapshot.isLowPowerModeBlocked {
                 result.blockedDisplays.append(display.snapshot.name)
                 continue
@@ -300,7 +315,7 @@ final class RefreshRateLock {
 
             var appliedExactMode = false
 
-            if config.preferExactModeSwitching,
+            if display.snapshot.preferredMethod(config: config) == .exactMode,
                let targetMode = display.highestExactMode,
                needsExactModeSwitch(from: display.currentMode, to: targetMode) {
                 if let record = recoveryRecord(for: display),
@@ -626,16 +641,6 @@ final class RefreshRateLock {
     }
 
     // MARK: - Display Discovery
-
-    private func shouldManage(_ snapshot: DisplaySnapshot, config: DisplayConfig) -> Bool {
-        guard config.isDisplayEnabled(id: snapshot.id, legacyID: snapshot.legacyID) else { return false }
-
-        if snapshot.isBuiltIn {
-            return config.manageBuiltInProMotionDisplay && snapshot.supportsProMotion
-        }
-
-        return config.manageExternalDisplays && snapshot.supportsManagement
-    }
 
     private func needsExactModeSwitch(from currentMode: CGDisplayMode, to targetMode: CGDisplayMode) -> Bool {
         if currentMode.ioDisplayModeID == targetMode.ioDisplayModeID,

@@ -2,7 +2,7 @@
 //  ShortcutsSettingsView.swift
 //  GameMode
 //
-//  Created by Nikita Moshyn on 11/10/2026.
+//  Created by Nikita Moshyn on 12/10/2026.
 //  Copyright © 2026 Nikita Moshyn. All rights reserved.
 //
 
@@ -56,7 +56,6 @@ struct ShortcutsSettingsView: View {
             .disabled(!configStore.config.isInputGuardEnabled)
         }
         .formStyle(.grouped)
-        .onAppear { configStore.refreshDetectedShortcuts() }
     }
 
     // MARK: - Shortcut Row

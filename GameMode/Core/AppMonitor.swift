@@ -137,11 +137,9 @@ class AppMonitor {
 
     /// Check if any currently active monitored app requires refresh rate lock.
     func anyActiveAppNeedsRefreshRateLock() -> Bool {
-        for bundleID in activeProcessCounts.keys {
-            if let entry = matchingMonitoredApp(bundleID: bundleID), entry.lockRefreshRate {
-                return true
-            }
+        configStore.config.monitoredApps.contains { entry in
+            entry.isEnabled && entry.lockRefreshRate
+                && activeProcessCounts.keys.contains { entry.matches(bundleID: $0) }
         }
-        return false
     }
 }
