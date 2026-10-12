@@ -2,7 +2,7 @@
 //  GameModeConfig.swift
 //  GameMode
 //
-//  Created by Nikita Moshyn on 15/03/2026.
+//  Created by Nikita Moshyn on 12/10/2026.
 //  Copyright © 2026 Nikita Moshyn. All rights reserved.
 //
 
@@ -14,22 +14,39 @@ struct GameModeConfig: Codable {
     var monitoredApps: [MonitoredApp]
     var shortcuts: [ShortcutEntry]
     var functionKeysInGamingMode: Bool
+    var isInputGuardEnabled: Bool
     var mouse: MouseConfig
     var system: SystemConfig
     var gestures: [GestureEntry]
     var hotkeys: [AppHotkey]
+    var display: DisplayConfig
     var loggingEnabled: Bool
     var logLevel: LogLevel
+    var receivesBetaUpdates: Bool
+
+    /// Sparkle always includes stable updates; prereleases require explicit consent.
+    var allowedUpdateChannels: Set<String> {
+        receivesBetaUpdates ? ["beta", "rc"] : []
+    }
+
+    /// The master switch gates effects without clearing the user's selections.
+    var inputGuardPolicy: InputGuardPolicy {
+        guard isInputGuardEnabled else { return .disabled }
+        return InputGuardPolicy(functionKeysEnabled: functionKeysInGamingMode,
+                                shortcutIDs: shortcuts.filter(\.disableInGamingMode).map(\.id),
+                                gestures: gestures.filter(\.disableInGamingMode))
+    }
 
     static var defaults: GameModeConfig {
         GameModeConfig(
             monitoredApps: MonitoredApp.presets,
             shortcuts: ShortcutEntry.defaults,
-            functionKeysInGamingMode: true,
+            functionKeysInGamingMode: false,
             mouse: MouseConfig(),
             system: SystemConfig(),
             gestures: GestureEntry.defaults,
             hotkeys: AppHotkey.defaults,
+            display: DisplayConfig(),
             loggingEnabled: true,
             logLevel: .info
         )
@@ -44,27 +61,41 @@ struct GameModeConfig: Codable {
         mouse = try container.decode(MouseConfig.self, forKey: .mouse)
         system = try container.decode(SystemConfig.self, forKey: .system)
         gestures = try container.decodeIfPresent([GestureEntry].self, forKey: .gestures) ?? GestureEntry.defaults
+        // Existing installs retain their previously selected protection. Fresh
+        // installs use the explicit opt-in default in the initializer below.
+        isInputGuardEnabled = try container.decodeIfPresent(Bool.self, forKey: .isInputGuardEnabled)
+            ?? (functionKeysInGamingMode || shortcuts.contains(where: \.disableInGamingMode) || gestures.contains(where: \.disableInGamingMode))
         hotkeys = try container.decodeIfPresent([AppHotkey].self, forKey: .hotkeys) ?? AppHotkey.defaults
+        display = try container.decodeIfPresent(DisplayConfig.self, forKey: .display) ?? DisplayConfig()
         loggingEnabled = try container.decodeIfPresent(Bool.self, forKey: .loggingEnabled) ?? true
         logLevel = try container.decodeIfPresent(LogLevel.self, forKey: .logLevel) ?? .info
+        receivesBetaUpdates = try container.decodeIfPresent(Bool.self, forKey: .receivesBetaUpdates) ?? false
     }
 
-    init(monitoredApps: [MonitoredApp], shortcuts: [ShortcutEntry], functionKeysInGamingMode: Bool,
-         mouse: MouseConfig, system: SystemConfig,
-         gestures: [GestureEntry] = GestureEntry.defaults,
-         hotkeys: [AppHotkey] = AppHotkey.defaults,
-         loggingEnabled: Bool = true,
-         logLevel: LogLevel = .info) {
+    init(monitoredApps: [MonitoredApp], shortcuts: [ShortcutEntry], functionKeysInGamingMode: Bool, mouse: MouseConfig, system: SystemConfig, gestures: [GestureEntry] = GestureEntry.defaults, hotkeys: [AppHotkey] = AppHotkey.defaults, display: DisplayConfig = DisplayConfig(), loggingEnabled: Bool = true, logLevel: LogLevel = .info, isInputGuardEnabled: Bool = false, receivesBetaUpdates: Bool = false) {
         self.monitoredApps = monitoredApps
         self.shortcuts = shortcuts
         self.functionKeysInGamingMode = functionKeysInGamingMode
+        self.isInputGuardEnabled = isInputGuardEnabled
         self.mouse = mouse
         self.system = system
         self.gestures = gestures
         self.hotkeys = hotkeys
+        self.display = display
         self.loggingEnabled = loggingEnabled
         self.logLevel = logLevel
+        self.receivesBetaUpdates = receivesBetaUpdates
     }
+}
+
+struct InputGuardPolicy: Equatable {
+    var functionKeysEnabled: Bool
+    var shortcutIDs: [Int]
+    var gestures: [GestureEntry]
+
+    static let disabled = InputGuardPolicy(functionKeysEnabled: false, shortcutIDs: [], gestures: [])
+
+    var isEmpty: Bool { !functionKeysEnabled && shortcutIDs.isEmpty && gestures.isEmpty }
 }
 
 // MARK: - Mouse

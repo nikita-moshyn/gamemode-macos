@@ -2,7 +2,7 @@
 //  AppMonitor.swift
 //  GameMode
 //
-//  Created by Nikita Moshyn on 15/03/2026.
+//  Created by Nikita Moshyn on 12/10/2026.
 //  Copyright © 2026 Nikita Moshyn. All rights reserved.
 //
 
@@ -17,20 +17,28 @@ class AppMonitor {
     private let configStore: ConfigStore
     private let onActivate: () -> Void
     private let onDeactivate: () -> Void
+    private let onMonitoredAppLaunched: ((MonitoredApp) -> Void)?
+    private let onMonitoredAppTerminated: ((MonitoredApp) -> Void)?
+    private let runningBundleIDs: () -> [String]
+    private var activeProcessCounts: [String: Int] = [:]
 
-    /// Number of monitored apps currently running.
+    /// Number of monitored processes currently running.
     /// Gaming mode activates at 1, deactivates at 0.
-    private(set) var activeGameCount = 0
+    var activeGameCount: Int { activeProcessCounts.values.reduce(0, +) }
+
+    /// A bundle ID stays active until its last monitored process exits.
+    var activeAppBundleIDs: Set<String> { Set(activeProcessCounts.keys) }
 
     // MARK: - Init
 
-    init(configStore: ConfigStore,
-         onActivate: @escaping () -> Void,
-         onDeactivate: @escaping () -> Void) {
+    init(configStore: ConfigStore, onActivate: @escaping () -> Void, onDeactivate: @escaping () -> Void, onMonitoredAppLaunched: ((MonitoredApp) -> Void)? = nil, onMonitoredAppTerminated: ((MonitoredApp) -> Void)? = nil, runningBundleIDs: @escaping () -> [String] = { NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier) }) {
 
         self.configStore = configStore
         self.onActivate = onActivate
         self.onDeactivate = onDeactivate
+        self.onMonitoredAppLaunched = onMonitoredAppLaunched
+        self.onMonitoredAppTerminated = onMonitoredAppTerminated
+        self.runningBundleIDs = runningBundleIDs
 
         let center = NSWorkspace.shared.notificationCenter
 
@@ -57,16 +65,16 @@ class AppMonitor {
 
     /// Count how many monitored apps are already running.
     /// Call this on launch to handle the case where games started before us.
-    func checkRunningApps() {
-        activeGameCount = 0
-        for app in NSWorkspace.shared.runningApplications {
-            if shouldMonitor(app) {
-                activeGameCount += 1
+    func checkRunningApps(activateIfRunning: Bool = true) {
+        activeProcessCounts.removeAll()
+        for bundleID in runningBundleIDs() {
+            if matchingMonitoredApp(bundleID: bundleID) != nil {
+                activeProcessCounts[bundleID, default: 0] += 1
             }
         }
         if activeGameCount > 0 {
             Log.info("\(activeGameCount) monitored app(s) already running", category: "AppMonitor")
-            DispatchQueue.main.async { self.onActivate() }
+            if activateIfRunning { DispatchQueue.main.async { self.onActivate() } }
         } else {
             Log.debug("No monitored apps currently running", category: "AppMonitor")
         }
@@ -77,39 +85,61 @@ class AppMonitor {
     @objc private func appDidLaunch(_ notification: Notification) {
         guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey]
                 as? NSRunningApplication,
-              shouldMonitor(app)
+              let bundleID = app.bundleIdentifier
         else { return }
+        appLaunched(bundleID: bundleID)
+    }
 
-        activeGameCount += 1
-        Log.info("Monitored app launched: \(app.bundleIdentifier ?? "?") (active count: \(activeGameCount))", category: "AppMonitor")
+    func appLaunched(bundleID: String) {
+        guard let matchedEntry = matchingMonitoredApp(bundleID: bundleID) else { return }
+
+        activeProcessCounts[bundleID, default: 0] += 1
+        Log.info("Monitored app launched: \(bundleID) (active count: \(activeGameCount))", category: "AppMonitor")
 
         if activeGameCount == 1 {
             DispatchQueue.main.async { self.onActivate() }
         }
+
+        DispatchQueue.main.async { self.onMonitoredAppLaunched?(matchedEntry) }
     }
 
     @objc private func appDidTerminate(_ notification: Notification) {
         guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey]
                 as? NSRunningApplication,
-              shouldMonitor(app)
+              let bundleID = app.bundleIdentifier
         else { return }
+        appTerminated(bundleID: bundleID)
+    }
 
-        activeGameCount = max(0, activeGameCount - 1)
-        Log.info("Monitored app terminated: \(app.bundleIdentifier ?? "?") (active count: \(activeGameCount))", category: "AppMonitor")
+    func appTerminated(bundleID: String) {
+        guard let matchedEntry = matchingMonitoredApp(bundleID: bundleID),
+              let processCount = activeProcessCounts[bundleID] else { return }
+
+        if processCount > 1 { activeProcessCounts[bundleID] = processCount - 1 }
+        else { activeProcessCounts.removeValue(forKey: bundleID) }
+        Log.info("Monitored app terminated: \(bundleID) (active count: \(activeGameCount))", category: "AppMonitor")
 
         if activeGameCount == 0 {
             DispatchQueue.main.async { self.onDeactivate() }
         }
+
+        DispatchQueue.main.async { self.onMonitoredAppTerminated?(matchedEntry) }
     }
 
     // MARK: - Matching
 
-    private func shouldMonitor(_ app: NSRunningApplication) -> Bool {
-        guard let bundleID = app.bundleIdentifier else { return false }
-
-        return configStore.config.monitoredApps.contains { entry in
+    private func matchingMonitoredApp(bundleID: String) -> MonitoredApp? {
+        configStore.config.monitoredApps.first { entry in
             guard entry.isEnabled else { return false }
             return entry.matches(bundleID: bundleID)
+        }
+    }
+
+    /// Check if any currently active monitored app requires refresh rate lock.
+    func anyActiveAppNeedsRefreshRateLock() -> Bool {
+        configStore.config.monitoredApps.contains { entry in
+            entry.isEnabled && entry.lockRefreshRate
+                && activeProcessCounts.keys.contains { entry.matches(bundleID: $0) }
         }
     }
 }

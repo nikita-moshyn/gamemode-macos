@@ -24,6 +24,17 @@ jobs:
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          # main's rulesets require an authorized account/app for feed pushes.
+          token: ${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}
+
+      - name: Require authorized feed publisher
+        env:
+          RELEASE_PUBLISH_TOKEN: ${{ secrets.RELEASE_PUBLISH_TOKEN }}
+        run: |
+          if [ -z "$RELEASE_PUBLISH_TOKEN" ]; then
+            echo "::error::Add RELEASE_PUBLISH_TOKEN as a repository Actions secret. Its account/app must be allowed to push to main under every active ruleset."
+            exit 1
+          fi
 
       # ── Parse tag into version, channel, and release flags ──
       - name: Extract version and channel
@@ -31,41 +42,31 @@ jobs:
         env:
           TAG_REF: ${{ github.ref }}
         run: |
-          TAG="${TAG_REF#refs/tags/}"
-          VERSION="${TAG#v}"
+          python3 scripts/release.py metadata "${TAG_REF#refs/tags/}" --github-output "$GITHUB_OUTPUT"
 
-          # Determine release channel
-          if echo "$VERSION" | grep -q "\-beta\."; then
-            CHANNEL="beta"
-            PRERELEASE="true"
-            DISPLAY_NAME="GameMode $VERSION (Beta)"
-            UPDATE_APPCAST="false"
-            MERGE_TO_MAIN="false"
-          elif echo "$VERSION" | grep -q "\-rc\."; then
-            CHANNEL="rc"
-            PRERELEASE="true"
-            DISPLAY_NAME="GameMode $VERSION (Release Candidate)"
-            UPDATE_APPCAST="false"
-            MERGE_TO_MAIN="false"
-          else
-            CHANNEL="stable"
-            PRERELEASE="false"
-            DISPLAY_NAME="GameMode $VERSION"
-            UPDATE_APPCAST="true"
-            MERGE_TO_MAIN="true"
-          fi
+      - name: Validate release source branch
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          git fetch origin main develop
+          python3 scripts/release.py validate-source --tag "$TAG"
 
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "channel=$CHANNEL" >> "$GITHUB_OUTPUT"
-          echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
-          echo "display_name=$DISPLAY_NAME" >> "$GITHUB_OUTPUT"
-          echo "update_appcast=$UPDATE_APPCAST" >> "$GITHUB_OUTPUT"
-          echo "merge_to_main=$MERGE_TO_MAIN" >> "$GITHUB_OUTPUT"
+      - name: Validate release tooling
+        run: python3 -m unittest discover -s scripts -p 'test_*.py'
 
-          echo "==> Version: $VERSION"
-          echo "==> Channel: $CHANNEL"
-          echo "==> Prerelease: $PRERELEASE"
+      - name: Run Swift tests
+        run: |
+          xcodebuild \
+            -project GameMode.xcodeproj \
+            -scheme GameMode \
+            -configuration Debug \
+            -derivedDataPath build/DerivedData \
+            -destination 'platform=macOS' \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            DEVELOPMENT_TEAM="" \
+            test
 
       # ── Import Developer ID certificate into a temporary keychain ──
       - name: Install signing certificate
@@ -100,6 +101,7 @@ jobs:
       - name: Build Release
         env:
           BUILD_VERSION: ${{ steps.meta.outputs.version }}
+          SPARKLE_BUILD_VERSION: ${{ steps.meta.outputs.build_version }}
         run: |
           xcodebuild \
             -project GameMode.xcodeproj \
@@ -107,7 +109,7 @@ jobs:
             -configuration Release \
             -derivedDataPath build/DerivedData \
             MARKETING_VERSION="$BUILD_VERSION" \
-            CURRENT_PROJECT_VERSION="$BUILD_VERSION" \
+            CURRENT_PROJECT_VERSION="$SPARKLE_BUILD_VERSION" \
             OTHER_CODE_SIGN_FLAGS="--timestamp" \
             CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
             build
@@ -117,15 +119,17 @@ jobs:
         id: package
         env:
           VERSION: ${{ steps.meta.outputs.version }}
+          TAG: ${{ steps.meta.outputs.tag }}
         run: |
-          APP_PATH=$(find build/DerivedData -name "GameMode.app" -type d | head -1)
+          APP_PATH="build/DerivedData/Build/Products/Release/GameMode.app"
 
-          if [ -z "$APP_PATH" ]; then
+          if [ ! -d "$APP_PATH" ]; then
             echo "ERROR: GameMode.app not found in build output"
             exit 1
           fi
 
           cp -R "$APP_PATH" build/GameMode.app
+          python3 scripts/release.py verify-bundle --app build/GameMode.app --tag "$TAG"
 
           IDENTITY=$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
           echo "Signing with: $IDENTITY"
@@ -238,54 +242,12 @@ jobs:
             exit 1
           fi
 
+          PUBLIC_KEY=$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' build/GameMode.app/Contents/Info.plist)
+          swift scripts/verify_update.swift "$ZIP" "$ED_SIG" "$PUBLIC_KEY" "$LENGTH"
+
           echo "signature=$ED_SIG" >> "$GITHUB_OUTPUT"
           echo "length=$LENGTH" >> "$GITHUB_OUTPUT"
           echo "EdDSA signature: $ED_SIG (length: $LENGTH)"
-
-      # ── Update appcast.xml (stable releases only) ──
-      - name: Generate appcast.xml
-        if: steps.meta.outputs.update_appcast == 'true'
-        env:
-          VERSION: ${{ steps.meta.outputs.version }}
-          TAG: ${{ steps.meta.outputs.tag }}
-          ED_SIG: ${{ steps.sparkle_sign.outputs.signature }}
-          LENGTH: ${{ steps.sparkle_sign.outputs.length }}
-        run: |
-          DOWNLOAD_URL="https://github.com/nikita-moshyn/gamemode-macos/releases/download/${TAG}/GameMode-${VERSION}.zip"
-          PUB_DATE=$(date -u "+%a, %d %b %Y %H:%M:%S +0000")
-
-          cat > /tmp/new_item.xml << ITEM_EOF
-              <item>
-                  <title>Version ${VERSION}</title>
-                  <sparkle:version>${VERSION}</sparkle:version>
-                  <pubDate>${PUB_DATE}</pubDate>
-                  <enclosure url="${DOWNLOAD_URL}" length="${LENGTH}" type="application/octet-stream" sparkle:edSignature="${ED_SIG}" />
-                  <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-              </item>
-          ITEM_EOF
-
-          if [ -f appcast.xml ]; then
-            sed -i '' "/<language>en<\/language>/r /tmp/new_item.xml" appcast.xml
-          else
-            cat > appcast.xml << EOF
-          <?xml version="1.0" encoding="utf-8"?>
-          <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
-              <channel>
-                  <title>GameMode Changelog</title>
-                  <description>Most recent changes with links to updates.</description>
-                  <language>en</language>
-          EOF
-            cat /tmp/new_item.xml >> appcast.xml
-            cat >> appcast.xml << EOF
-              </channel>
-          </rss>
-          EOF
-          fi
-
-          rm -f /tmp/new_item.xml
-
-          echo "--- appcast.xml ---"
-          cat appcast.xml
 
       # ── Create GitHub Release ──
       - name: Create GitHub Release
@@ -303,38 +265,18 @@ jobs:
             build/GameMode-${{ steps.meta.outputs.version }}.zip
           draft: false
           prerelease: ${{ steps.meta.outputs.prerelease == 'true' }}
+          make_latest: ${{ steps.meta.outputs.prerelease == 'false' }}
 
-      # ── Merge to main and commit appcast (stable releases only) ──
-      - name: Merge to main
-        if: steps.meta.outputs.merge_to_main == 'true'
+      # Publish only after the signed archive is available for download.
+      # Every release changes only the feed; code promotion happens through PRs.
+      - name: Publish update feed
         env:
           VERSION: ${{ steps.meta.outputs.version }}
           TAG: ${{ steps.meta.outputs.tag }}
+          ED_SIG: ${{ steps.sparkle_sign.outputs.signature }}
+          LENGTH: ${{ steps.sparkle_sign.outputs.length }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          # Save generated appcast
-          cp appcast.xml /tmp/appcast.xml
-
-          # Get the tagged commit
-          TAGGED_COMMIT=$(git rev-list -n 1 "$TAG")
-
-          git fetch origin main
-          git checkout main
-
-          # Merge the tagged commit into main
-          git merge --no-ff "$TAGGED_COMMIT" -m "release: merge $VERSION into main"
-
-          # Copy the updated appcast
-          cp /tmp/appcast.xml appcast.xml
-          git add appcast.xml
-
-          if ! git diff --cached --quiet; then
-            git commit -m "chore: update appcast.xml for $VERSION"
-          fi
-
-          git push origin main
+          bash scripts/publish_appcast.sh
 
       # ── Cleanup keychain ──
       - name: Cleanup

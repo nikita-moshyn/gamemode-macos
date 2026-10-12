@@ -2,7 +2,7 @@
 //  HotkeysSettingsView.swift
 //  GameMode
 //
-//  Created by Nikita Moshyn on 15/03/2026.
+//  Created by Nikita Moshyn on 10/10/2026.
 //  Copyright © 2026 Nikita Moshyn. All rights reserved.
 //
 
@@ -16,79 +16,71 @@ struct HotkeysSettingsView: View {
         Form {
             if !configStore.isAccessibilityGranted {
                 Section {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "lock.shield")
-                                .foregroundStyle(.red)
-                                .font(.title3)
-                            Text("Accessibility Permission Required")
-                                .fontWeight(.semibold)
+                    Label("Accessibility Permission Required", systemImage: "lock.shield")
+                        .fontWeight(.medium)
+                    Text("Allow GameMode to use keyboard shortcuts while other apps are focused.")
+                        .foregroundStyle(.secondary)
+                    Button("Open System Settings") {
+                        guard !configStore.isPreview else { return }
+                        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+                            NSWorkspace.shared.open(url)
                         }
-
-                        Text("GameMode needs Accessibility permission to capture keyboard shortcuts while other apps are in focus.")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-
-                        HStack(spacing: 12) {
-                            Button("Request Permission") {
-                                HotkeyManager.requestAccessibilityPermission()
-                            }
-
-                            Button("Open System Settings") {
-                                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-                                    NSWorkspace.shared.open(url)
-                                }
-                            }
-                        }
-                        .padding(.top, 4)
+                    }
+                    Button("Request Permission") {
+                        guard !configStore.isPreview else { return }
+                        HotkeyManager.requestAccessibilityPermission()
                     }
                 }
             }
 
             Section {
-                ForEach(configStore.config.hotkeys.indices, id: \.self) { index in
-                    hotkeyRow(index: index)
+                ForEach(configStore.config.hotkeys) { hotkey in
+                    hotkeyRow(hotkey)
                 }
             } header: {
-                Text("Global Hotkeys")
+                Text("Control GameMode")
             } footer: {
-                Text("These shortcuts work system-wide, even when GameMode is not focused.")
-                    .foregroundStyle(.secondary)
+                Text("These hotkeys control GameMode from any application. Click Record Shortcut, then press a key with Command, Control, Option, or Shift. Press Escape to cancel.")
             }
         }
         .formStyle(.grouped)
     }
 
-    // MARK: - Row
-
-    private func hotkeyRow(index: Int) -> some View {
-        let hotkey = configStore.config.hotkeys[index]
-
-        return HStack {
-            Toggle("", isOn: Binding(
-                get: { configStore.config.hotkeys[index].isEnabled },
+    private func hotkeyRow(_ hotkey: AppHotkey) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Toggle(hotkey.displayName, isOn: Binding(
+                get: { currentHotkey(hotkey.id)?.isEnabled ?? false },
                 set: { newValue in
+                    guard let index = configStore.config.hotkeys.firstIndex(where: { $0.id == hotkey.id }) else { return }
                     configStore.config.hotkeys[index].isEnabled = newValue
                     onHotkeysChanged?()
                 }
             ))
             .toggleStyle(.switch)
-            .labelsHidden()
-
-            Text(hotkey.name)
-                .frame(maxWidth: .infinity, alignment: .leading)
 
             ShortcutRecorderView(
                 keyCode: Binding(
-                    get: { configStore.config.hotkeys[index].keyCode },
-                    set: { configStore.config.hotkeys[index].keyCode = $0 }
+                    get: { currentHotkey(hotkey.id)?.keyCode },
+                    set: { keyCode in
+                        guard let index = configStore.config.hotkeys.firstIndex(where: { $0.id == hotkey.id }) else { return }
+                        configStore.config.hotkeys[index].keyCode = keyCode
+                    }
                 ),
                 modifiers: Binding(
-                    get: { configStore.config.hotkeys[index].modifiers },
-                    set: { configStore.config.hotkeys[index].modifiers = $0 }
+                    get: { currentHotkey(hotkey.id)?.modifiers ?? 0 },
+                    set: { modifiers in
+                        guard let index = configStore.config.hotkeys.firstIndex(where: { $0.id == hotkey.id }) else { return }
+                        configStore.config.hotkeys[index].modifiers = modifiers
+                    }
                 ),
-                onChange: { onHotkeysChanged?() }
+                onChange: { onHotkeysChanged?() },
+                label: hotkey.displayName
             )
         }
+        .padding(.vertical, 4)
+    }
+
+    private func currentHotkey(_ id: String) -> AppHotkey? {
+        configStore.config.hotkeys.first { $0.id == id }
     }
 }

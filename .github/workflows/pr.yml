@@ -3,17 +3,27 @@ name: PR Check
 on:
   pull_request:
     branches: [main, develop]
+  push:
+    branches: [main, develop]
+    paths-ignore:
+      - appcast.xml
 
 concurrency:
-  group: pr-${{ github.head_ref }}
+  group: checks-${{ github.event_name }}-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
   build-and-test:
+    name: build
     runs-on: macos-15
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+
+      - name: Validate release tooling
+        run: |
+          python3 -m unittest discover -s scripts -p 'test_*.py'
+          python3 scripts/release.py validate-appcast appcast.xml
 
       - name: Build
         run: |

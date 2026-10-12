@@ -2,7 +2,7 @@
 //  ConfigStoreTests.swift
 //  GameMode
 //
-//  Created by Nikita Moshyn on 21/03/2026.
+//  Created by Nikita Moshyn on 12/10/2026.
 //  Copyright © 2026 Nikita Moshyn. All rights reserved.
 //
 
@@ -35,7 +35,10 @@ final class ConfigStoreTests: XCTestCase {
 
     func test_initialLoad_noSavedData_usesDefaults() {
         XCTAssertEqual(store.config.monitoredApps.count, MonitoredApp.presets.count)
-        XCTAssertTrue(store.config.functionKeysInGamingMode)
+        XCTAssertFalse(store.config.functionKeysInGamingMode)
+        XCTAssertFalse(store.config.isInputGuardEnabled)
+        XCTAssertTrue(store.config.shortcuts.allSatisfy { !$0.disableInGamingMode })
+        XCTAssertTrue(store.config.gestures.allSatisfy { !$0.disableInGamingMode })
     }
 
     func test_isFirstLaunch_trueWhenNoData() {
@@ -48,11 +51,34 @@ final class ConfigStoreTests: XCTestCase {
     }
 
     func test_saveAndLoad_roundTrip() {
-        store.config.functionKeysInGamingMode = false
+        store.config.functionKeysInGamingMode = true
         // didSet triggers save() automatically
 
         let store2 = ConfigStore(defaults: testDefaults)
-        XCTAssertFalse(store2.config.functionKeysInGamingMode)
+        XCTAssertTrue(store2.config.functionKeysInGamingMode)
+    }
+
+    func test_betaOptInPersistsAndOptOutSurvivesRelaunch() {
+        XCTAssertFalse(store.config.receivesBetaUpdates)
+        store.config.receivesBetaUpdates = true
+        let optedIn = ConfigStore(defaults: testDefaults)
+        XCTAssertEqual(optedIn.config.allowedUpdateChannels, ["beta", "rc"])
+        optedIn.config.receivesBetaUpdates = false
+        XCTAssertTrue(ConfigStore(defaults: testDefaults).config.allowedUpdateChannels.isEmpty)
+    }
+
+    func test_corruptConfigurationIsPreservedUntilExplicitReset() {
+        let corrupt = Data("not-json".utf8)
+        testDefaults.set(corrupt, forKey: "GameModeConfig_v2")
+        let damaged = ConfigStore(defaults: testDefaults)
+        XCTAssertNotNil(damaged.configurationLoadError)
+        XCTAssertFalse(damaged.isFirstLaunch)
+        damaged.config.functionKeysInGamingMode = true
+        XCTAssertEqual(testDefaults.data(forKey: "GameModeConfig_v2"), corrupt)
+        damaged.resetAllSavedData()
+        XCTAssertNil(damaged.configurationLoadError)
+        XCTAssertNotEqual(testDefaults.data(forKey: "GameModeConfig_v2"), corrupt)
+        XCTAssertTrue(testDefaults.dictionaryRepresentation().keys.contains { $0.hasPrefix("GameModeConfig_v2_unreadable_") })
     }
 
     // MARK: - App Management
@@ -106,6 +132,61 @@ final class ConfigStoreTests: XCTestCase {
 
     // MARK: - Shortcut Management
 
+    func test_refreshDetectedShortcutsPreservesSelectionsAndAddsUniqueEntriesOff() {
+        let firstID = ShortcutEntry.defaults[0].id
+        let secondID = ShortcutEntry.defaults[1].id
+        let newEntry = ShortcutEntry(id: 999, name: "New Shortcut", category: "Test", disableInGamingMode: true)
+        var detected = [
+            ShortcutEntry(id: firstID, name: "Changed name", category: "Test", disableInGamingMode: false),
+            ShortcutEntry(id: secondID, name: "Other shortcut", category: "Test", disableInGamingMode: true),
+            newEntry, newEntry
+        ]
+        let subject = ConfigStore(defaults: testDefaults, isPreview: true, shortcutDetector: { detected })
+        subject.config.isInputGuardEnabled = true
+        subject.config.functionKeysInGamingMode = true
+        subject.config.shortcuts[0].disableInGamingMode = true
+        subject.isGamingMode = true
+        let selections = subject.config.shortcuts
+        let activePolicy = subject.config.inputGuardPolicy
+
+        subject.refreshDetectedShortcuts()
+        XCTAssertEqual(Array(subject.config.shortcuts.prefix(selections.count)), selections)
+        XCTAssertEqual(subject.config.shortcuts.filter { $0.id == newEntry.id }.count, 1)
+        XCTAssertEqual(subject.config.shortcuts.first { $0.id == newEntry.id }?.disableInGamingMode, false)
+        XCTAssertEqual(subject.config.inputGuardPolicy, activePolicy)
+        XCTAssertTrue(subject.isGamingMode)
+
+        subject.toggleShortcut(id: newEntry.id)
+        let savedSelection = subject.config.shortcuts.first { $0.id == newEntry.id }
+        detected = [] // A temporarily unavailable shortcut must not erase a choice.
+        subject.refreshDetectedShortcuts()
+        detected = [newEntry]
+        subject.refreshDetectedShortcuts()
+        XCTAssertEqual(subject.config.shortcuts.first { $0.id == newEntry.id }, savedSelection)
+        XCTAssertEqual(subject.config.shortcuts.count, selections.count + 1)
+        XCTAssertEqual(ConfigStore(defaults: testDefaults).config.shortcuts, subject.config.shortcuts)
+    }
+
+    func test_automaticShortcutRefreshDoesNotChangeCorruptConfiguration() {
+        let corrupt = Data("not-json".utf8)
+        testDefaults.set(corrupt, forKey: "GameModeConfig_v2")
+        var detections = 0
+        let subject = ConfigStore(defaults: testDefaults, isPreview: true, shortcutDetector: {
+            detections += 1
+            return [ShortcutEntry(id: 999, name: "New", category: "Test", disableInGamingMode: false)]
+        })
+        subject.refreshDetectedShortcuts()
+        XCTAssertEqual(detections, 0)
+        XCTAssertEqual(testDefaults.data(forKey: "GameModeConfig_v2"), corrupt)
+    }
+
+    func test_previewDoesNotAutomaticallyReadRealSystemShortcuts() {
+        let subject = ConfigStore(defaults: testDefaults, isPreview: true)
+        subject.refreshDetectedShortcuts()
+        XCTAssertEqual(subject.config.shortcuts, ShortcutEntry.defaults)
+        XCTAssertTrue(subject.isFirstLaunch, "An unchanged discovery must not save configuration")
+    }
+
     func test_mergeDetectedShortcuts_addsNew() {
         let newEntry = ShortcutEntry(
             id: 999, name: "New Shortcut",
@@ -119,7 +200,8 @@ final class ConfigStoreTests: XCTestCase {
     }
 
     func test_mergeDetectedShortcuts_preservesExisting() {
-        // Default shortcuts[0] has disableInGamingMode=true (Spotlight)
+        // Preserve a user's explicit choice when detection finds the same shortcut.
+        store.config.shortcuts[0].disableInGamingMode = true
         let existingID = store.config.shortcuts[0].id
         XCTAssertTrue(store.config.shortcuts[0].disableInGamingMode)
 
@@ -166,16 +248,38 @@ final class ConfigStoreTests: XCTestCase {
 
     // MARK: - Reset
 
+    func test_inputGuardMasterAndSelectionsPersistIndependently() {
+        store.config.isInputGuardEnabled = true
+        store.config.functionKeysInGamingMode = true
+        store.config.shortcuts[0].disableInGamingMode = true
+        store.config.gestures[0].disableInGamingMode = true
+        let selected = store.config.inputGuardPolicy
+        store.config.isInputGuardEnabled = false
+
+        let reloaded = ConfigStore(defaults: testDefaults)
+        XCTAssertEqual(reloaded.config.inputGuardPolicy, .disabled)
+        reloaded.config.isInputGuardEnabled = true
+        XCTAssertEqual(reloaded.config.inputGuardPolicy, selected)
+    }
+
     func test_resetAllSavedData() {
         // Mutate config
-        store.config.functionKeysInGamingMode = false
+        store.config.receivesBetaUpdates = true
+        store.config.isInputGuardEnabled = true
+        store.config.functionKeysInGamingMode = true
+        store.config.shortcuts[0].disableInGamingMode = true
+        store.config.gestures[0].disableInGamingMode = true
         store.isGamingMode = true
         store.isMouseBoostApplied = true
         store.sessionMouseBaselineSpeed = 0.5
 
         store.resetAllSavedData()
 
-        XCTAssertTrue(store.config.functionKeysInGamingMode)
+        XCTAssertFalse(store.config.receivesBetaUpdates)
+        XCTAssertFalse(store.config.functionKeysInGamingMode)
+        XCTAssertFalse(store.config.isInputGuardEnabled)
+        XCTAssertTrue(store.config.shortcuts.allSatisfy { !$0.disableInGamingMode })
+        XCTAssertTrue(store.config.gestures.allSatisfy { !$0.disableInGamingMode })
         XCTAssertFalse(store.isGamingMode)
         XCTAssertFalse(store.isMouseBoostApplied)
         XCTAssertNil(store.sessionMouseBaselineSpeed)
