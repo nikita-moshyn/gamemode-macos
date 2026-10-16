@@ -2,19 +2,20 @@
 //  DisplaySettingsView.swift
 //  GameMode
 //
-//  Created by Nikita Moshyn on 11/10/2026.
+//  Created by Nikita Moshyn on 12/10/2026.
 //  Copyright © 2026 Nikita Moshyn. All rights reserved.
 //
 
+import ComposableArchitecture
 import SwiftUI
 import Combine
 
 struct DisplaySettingsView: View {
-    @ObservedObject var configStore: ConfigStore
+    @Bindable var store: StoreOf<AppSettings>
 
-    @State private var displays: [DisplaySnapshot] = []
-    @State private var lowPowerModeEnabled = false
-    @State private var batteryLevel: Int?
+    private var displays: [DisplaySnapshot] { store.displayStatus.displays }
+    private var lowPowerModeEnabled: Bool { store.displayStatus.lowPowerModeEnabled }
+    private var batteryLevel: Int? { store.displayStatus.batteryLevel }
 
     private var manageableDisplays: [DisplaySnapshot] {
         displays.filter(\.supportsManagement)
@@ -37,20 +38,14 @@ struct DisplaySettingsView: View {
             lowPowerModeSection
         }
         .formStyle(.grouped)
-        .onAppear { refreshStatus() }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification).debounce(for: .milliseconds(200), scheduler: RunLoop.main)) { _ in refreshStatus() }
-        .onReceive(NotificationCenter.default.publisher(for: .NSProcessInfoPowerStateDidChange)) { _ in refreshStatus() }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in refreshStatus() }
-        .onChange(of: configStore.isTransitioning) { _, transitioning in
-            if !transitioning { refreshStatus() }
+        .task { await store.send(.displayStatusRequested).finish() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification).debounce(for: .milliseconds(200), scheduler: RunLoop.main)) { _ in store.send(.displayStatusRequested) }
+        .onReceive(NotificationCenter.default.publisher(for: .NSProcessInfoPowerStateDidChange)) { _ in store.send(.displayStatusRequested) }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in store.send(.displayStatusRequested) }
+        .onChange(of: store.runtime.isTransitioning) { _, transitioning in
+            if !transitioning { store.send(.displayStatusRequested) }
         }
-        .onChange(of: configStore.isGamingMode) { _, _ in refreshStatus() }
-    }
-
-    private func refreshStatus() {
-        displays = RefreshRateLock.displaySnapshots()
-        lowPowerModeEnabled = PowerManager.isLowPowerModeEnabled
-        batteryLevel = PowerManager.batteryLevel
+        .onChange(of: store.runtime.isGamingMode) { _, _ in store.send(.displayStatusRequested) }
     }
 
     // MARK: - Status
@@ -110,20 +105,20 @@ struct DisplaySettingsView: View {
         Section {
             Toggle(
                 "Use maximum refresh rate during Game Mode",
-                isOn: $configStore.config.display.isRefreshRateLockEnabled
+                isOn: $store.config.display.isRefreshRateLockEnabled
             )
 
             Toggle(
                 "Manage built-in ProMotion display",
-                isOn: $configStore.config.display.manageBuiltInProMotionDisplay
+                isOn: $store.config.display.manageBuiltInProMotionDisplay
             )
-            .disabled(!hasBuiltInProMotionDisplay || !configStore.config.display.isRefreshRateLockEnabled)
+            .disabled(!hasBuiltInProMotionDisplay || !store.config.display.isRefreshRateLockEnabled)
 
             Toggle(
                 "Manage external high-refresh displays",
-                isOn: $configStore.config.display.manageExternalDisplays
+                isOn: $store.config.display.manageExternalDisplays
             )
-            .disabled(!hasManageableExternalDisplay || !configStore.config.display.isRefreshRateLockEnabled)
+            .disabled(!hasManageableExternalDisplay || !store.config.display.isRefreshRateLockEnabled)
 
         } header: {
             Text("Max Refresh Rate")
@@ -164,7 +159,7 @@ struct DisplaySettingsView: View {
 
     // MARK: - Per-App Selection
 
-    var refreshRateApps: [MonitoredApp] { configStore.config.monitoredApps.filter(\.isEnabled) }
+    var refreshRateApps: [MonitoredApp] { store.config.monitoredApps.filter(\.isEnabled) }
 
     private var refreshRateApplicationsSection: some View {
         Section {
@@ -187,15 +182,14 @@ struct DisplaySettingsView: View {
         } footer: {
             Text("Use Max Refresh Rate while any selected application is running. Manage the application list in Auto-Activation.")
         }
-        .disabled(!configStore.config.display.isRefreshRateLockEnabled)
+        .disabled(!store.config.display.isRefreshRateLockEnabled)
     }
 
     func refreshRateBinding(for appID: UUID) -> Binding<Bool> {
         Binding(get: {
-            configStore.config.monitoredApps.first { $0.id == appID }?.lockRefreshRate ?? false
+            store.config.monitoredApps.first { $0.id == appID }?.lockRefreshRate ?? false
         }, set: { enabled in
-            guard let index = configStore.config.monitoredApps.firstIndex(where: { $0.id == appID }) else { return }
-            configStore.config.monitoredApps[index].lockRefreshRate = enabled
+            store.send(.appRefreshRateLockChanged(appID, enabled))
         })
     }
 
@@ -221,22 +215,22 @@ struct DisplaySettingsView: View {
 
             Toggle(
                 "Auto-disable Low Power Mode when gaming",
-                isOn: $configStore.config.display.autoDisableLowPowerMode
+                isOn: $store.config.display.autoDisableLowPowerMode
             )
 
-            if configStore.config.display.autoDisableLowPowerMode {
+            if store.config.display.autoDisableLowPowerMode {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
                         Text("Battery threshold")
                         Spacer()
-                        Text("\(configStore.config.display.lowPowerModeBatteryThreshold)%")
+                        Text("\(store.config.display.lowPowerModeBatteryThreshold)%")
                             .monospacedDigit()
                             .foregroundStyle(.secondary)
                     }
 
                     Slider(value: batteryThresholdBinding, in: 10...100, step: 5)
                         .accessibilityLabel("Minimum battery level for disabling Low Power Mode")
-                        .accessibilityValue("\(configStore.config.display.lowPowerModeBatteryThreshold) percent")
+                        .accessibilityValue("\(store.config.display.lowPowerModeBatteryThreshold) percent")
                 }
 
                 if let level = batteryLevel {
@@ -261,32 +255,32 @@ struct DisplaySettingsView: View {
     }
 
     private func isDisplayToggleDisabled(_ display: DisplaySnapshot) -> Bool {
-        if !configStore.config.display.isRefreshRateLockEnabled {
+        if !store.config.display.isRefreshRateLockEnabled {
             return true
         }
 
         if display.isBuiltIn {
-            return !configStore.config.display.manageBuiltInProMotionDisplay
+            return !store.config.display.manageBuiltInProMotionDisplay
         }
 
-        return !configStore.config.display.manageExternalDisplays
+        return !store.config.display.manageExternalDisplays
     }
 
     private func managedDisplayBinding(for display: DisplaySnapshot) -> Binding<Bool> {
         Binding<Bool>(
             get: {
-                configStore.config.display.isDisplayEnabled(id: display.id, legacyID: display.legacyID)
+                store.config.display.isDisplayEnabled(id: display.id, legacyID: display.legacyID)
             },
             set: { isEnabled in
-                configStore.setManagedDisplay(id: display.id, name: display.name, isEnabled: isEnabled)
+                store.send(.managedDisplayChanged(id: display.id, name: display.name, isEnabled: isEnabled))
             }
         )
     }
 
     private var batteryThresholdBinding: Binding<Double> {
         Binding<Double>(
-            get: { Double(configStore.config.display.lowPowerModeBatteryThreshold) },
-            set: { configStore.config.display.lowPowerModeBatteryThreshold = Int($0) }
+            get: { Double(store.config.display.lowPowerModeBatteryThreshold) },
+            set: { store.send(.binding(.set(\.config.display.lowPowerModeBatteryThreshold, Int($0)))) }
         )
     }
 }

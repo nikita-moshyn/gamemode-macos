@@ -2,7 +2,7 @@
 //  RecoveryController.swift
 //  GameMode
 //
-//  Created by Nikita Moshyn on 11/10/2026.
+//  Created by Nikita Moshyn on 13/10/2026.
 //  Copyright © 2026 Nikita Moshyn. All rights reserved.
 //
 
@@ -60,14 +60,15 @@ final class RecoveryController {
 
     /// Change only Input Guard within an open Game Mode session. Reuse the
     /// existing setters, and never recapture an original until its restore commits.
-    func updateInputGuard(_ policy: InputGuardPolicy, capture: (InputGuardPolicy) -> SettingsManager.KeyboardSnapshot, apply: (SettingsManager.KeyboardSnapshot) throws -> Void) throws {
+    func updateInputGuard(_ policy: InputGuardPolicy, capture: (InputGuardPolicy) throws -> SettingsManager.KeyboardSnapshot, apply: (SettingsManager.KeyboardSnapshot) throws -> Void) throws {
         guard hasOpenSession else { throw Failure.message("Enable Game Mode before applying Input Guard.") }
         try restoreInputGuard()
         guard !policy.isEmpty else { return }
-        let snapshot = capture(policy)
+        let snapshot = try capture(policy)
         try journal.update {
             $0.appliedChanges.functionKeysChanged = snapshot.functionKeysChanged
             $0.appliedChanges.previousFunctionKeysEnabled = snapshot.previousFunctionKeysEnabled
+            $0.appliedChanges.functionKeysWerePersisted = false
             $0.appliedChanges.disabledShortcutIDs = snapshot.shortcutIDsToDisable
             $0.appliedChanges.previousShortcutStates = snapshot.previousShortcutStates
             $0.appliedChanges.shortcutsWerePersisted = false
@@ -97,6 +98,7 @@ final class RecoveryController {
         try journal.update {
             $0.appliedChanges.functionKeysChanged = false
             $0.appliedChanges.previousFunctionKeysEnabled = nil
+            $0.appliedChanges.functionKeysWerePersisted = false
             $0.appliedChanges.gesturesChanged = false
             $0.appliedChanges.previousGestureValues = nil
             $0.appliedChanges.disabledShortcutIDs = []

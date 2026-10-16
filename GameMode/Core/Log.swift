@@ -2,19 +2,24 @@
 //  Log.swift
 //  GameMode
 //
-//  Created by Nikita Moshyn on 23/03/2026.
+//  Created by Nikita Moshyn on 12/10/2026.
 //  Copyright © 2026 Nikita Moshyn. All rights reserved.
 //
 
 import os
 import Foundation
+import ConcurrencyExtras
 
 /// Shared logging facade for GameMode.
 ///
 /// Uses Apple's unified logging (`os.Logger`) under the hood.
-/// Respects the user's log level setting from `ConfigStore`,
+/// Respects the user's log level setting from the root feature,
 /// unless this is a DEBUG build (which logs everything).
 enum Log {
+
+    private static let configuration = LockIsolated(GameModeConfig.defaults)
+
+    static func configure(_ config: GameModeConfig) { configuration.setValue(config) }
 
     private static let subsystem = Bundle.main.bundleIdentifier ?? "com.nikita.GameMode"
 
@@ -40,8 +45,8 @@ enum Log {
         log(.error, message, category: category)
     }
 
-    /// Logs using an explicit config snapshot instead of `ConfigStore.shared`.
-    /// This avoids re-entering the singleton while it is still initializing.
+    /// Logs using an explicit config snapshot instead of the root feature.
+    /// This is also safe before the root has configured the shared logging sink.
     static func bootstrap(_ level: LogLevel, _ message: String, category: String = "general", config: GameModeConfig) {
         guard shouldLog(level, config: config) else { return }
         emit(level, message, category: category)
@@ -71,7 +76,7 @@ enum Log {
         #if DEBUG
         return true
         #else
-        return shouldLog(level, config: ConfigStore.shared.config)
+        return shouldLog(level, config: configuration.value)
         #endif
     }
 

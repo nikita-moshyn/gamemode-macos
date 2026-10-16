@@ -8,11 +8,21 @@
 
 import AppKit
 import Combine
+import ComposableArchitecture
 import SwiftUI
+import ConcurrencyExtras
 import XCTest
 @testable import GameMode
 
 final class SettingsPresentationTests: XCTestCase {
+    override func record(_ issue: XCTIssue) {
+        if issue.compactDescription.contains("Publishing changes from within view updates")
+            || issue.compactDescription.contains("Modifying state during view update") {
+            super.record(XCTIssue(type: .assertionFailure, compactDescription: issue.compactDescription))
+        } else {
+            super.record(issue)
+        }
+    }
     @MainActor
     func testDockPresenceLastsUntilBothSettingsAndAboutCloseInEitherOrder() {
         for settingsClosesFirst in [true, false] {
@@ -105,44 +115,44 @@ final class SettingsPresentationTests: XCTestCase {
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
         defaults.set(SettingsSection.shortcuts.rawValue, forKey: "GameModeSettingsSection")
-        var detected = [ShortcutEntry(id: 999, name: "First shortcut", category: "Test", disableInGamingMode: true)]
-        var detections = 0
-        let store = ConfigStore(defaults: defaults, isPreview: true, shortcutDetector: {
-            detections += 1
-            return detected
+        let detected = LockIsolated([ShortcutEntry(id: 999, name: "First shortcut", category: "Test", disableInGamingMode: true)])
+        let detections = LockIsolated(0)
+        let store = SettingsTestDriver(defaults: defaults, isPreview: true, shortcutDetector: {
+            detections.withValue { $0 += 1 }
+            return detected.value
         })
-        let root = SettingsWindow(configStore: store).defaultAppStorage(defaults)
+        let root = SettingsWindow(store: store.settingsStore)
         let window = NSWindow(contentViewController: NSHostingController(rootView: root))
         window.isReleasedWhenClosed = false
         window.setFrameOrigin(NSPoint(x: -10000, y: -10000))
         window.orderBack(nil)
         defer { window.orderOut(nil); window.close() }
         waitForUI("Input Guard completes its first shortcut scan") {
-            detections > 0 && window.contentView.flatMap { self.findOutlineView(in: $0) }?.selectedRow == 1
+            detections.value > 0 && window.contentView.flatMap { self.findOutlineView(in: $0) }?.selectedRow == 1
         }
 
-        XCTAssertGreaterThan(detections, 0)
+        XCTAssertGreaterThan(detections.value, 0)
         XCTAssertFalse(store.config.isInputGuardEnabled)
         XCTAssertEqual(store.config.shortcuts.first { $0.id == 999 }?.disableInGamingMode, false)
         store.toggleShortcut(id: 999)
         let outline = try XCTUnwrap(window.contentView.flatMap { self.findOutlineView(in: $0) })
         for shortcutID in 1000...1002 {
             if shortcutID == 1001 { outline.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false) }
-            else { store.requestedSettingsSection = SettingsSection.general.rawValue }
+            else { store.settingsStore.send(.sectionSelected(.general)) }
             waitForUI("General is selected and its navigation request is consumed") {
-                store.requestedSettingsSection == nil
+                store.settingsStore.selectedSection == .general
                     && defaults.string(forKey: "GameModeSettingsSection") == SettingsSection.general.rawValue
                     && window.contentView.flatMap { self.findOutlineView(in: $0) }?.selectedRow == 0
             }
-            XCTAssertNil(store.requestedSettingsSection)
+            XCTAssertEqual(store.settingsStore.selectedSection, .general)
             XCTAssertEqual(defaults.string(forKey: "GameModeSettingsSection"), SettingsSection.general.rawValue)
             XCTAssertEqual(window.contentView.flatMap { self.findOutlineView(in: $0) }?.selectedRow, 0)
-            let previousDetections = detections
-            detected.append(ShortcutEntry(id: shortcutID, name: "Another shortcut", category: "Test", disableInGamingMode: true))
+            let previousDetections = detections.value
+            detected.withValue { $0.append(ShortcutEntry(id: shortcutID, name: "Another shortcut", category: "Test", disableInGamingMode: true)) }
             if shortcutID == 1002 { outline.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: false) }
-            else { store.requestedSettingsSection = SettingsSection.shortcuts.rawValue }
+            else { store.settingsStore.send(.sectionSelected(.shortcuts)) }
             waitForUI("Revisiting Input Guard discovers shortcut \(shortcutID)") {
-                store.requestedSettingsSection == nil && detections > previousDetections
+                store.settingsStore.selectedSection == .shortcuts && detections.value > previousDetections
                     && window.contentView.flatMap { self.findOutlineView(in: $0) }?.selectedRow == 1
                     && store.config.shortcuts.contains { $0.id == shortcutID }
             }
@@ -151,6 +161,47 @@ final class SettingsPresentationTests: XCTestCase {
             XCTAssertEqual(store.config.shortcuts.first { $0.id == shortcutID }?.disableInGamingMode, false)
             XCTAssertFalse(store.config.isInputGuardEnabled)
         }
+    }
+
+    @MainActor
+    func testRapidNavigationAndRecoveryDismissTheApplicationSheet() throws {
+        let suite = "GameMode.NavigationPresentation.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let preferences = SettingsClient.preferences(defaults, detectShortcuts: { [] })
+        var state = preferences.load()
+        state.isPreview = true
+        let root = Store(initialState: GameModeFeature.State(settings: state)) { GameModeFeature() } withDependencies: {
+            $0.settingsClient = preferences
+            $0.settingsViewClient = .previewValue
+        }
+        let store = root.scope(state: \.settings, action: \.settings)
+        let window = NSWindow(contentViewController: NSHostingController(rootView: SettingsWindow(store: store)))
+        window.isReleasedWhenClosed = false
+        window.setFrameOrigin(NSPoint(x: -10000, y: -10000))
+        window.orderBack(nil)
+        defer { window.orderOut(nil); window.close() }
+        waitForUI("Sidebar is ready") { window.contentView.flatMap { self.findOutlineView(in: $0) }?.selectedRow == 0 }
+        let outline = try XCTUnwrap(window.contentView.flatMap { self.findOutlineView(in: $0) })
+        for _ in 0..<3 {
+            outline.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: false)
+            store.send(.sectionSelected(.mouse))
+            store.send(.sectionSelected(.hotkeys))
+            store.send(.sectionSelected(.system))
+        }
+        waitForUI("The last requested destination wins") {
+            store.selectedSection == .system && outline.selectedRow == 6
+        }
+        XCTAssertEqual(defaults.string(forKey: "GameModeSettingsSection"), "system")
+        XCTAssertNil(defaults.data(forKey: "GameModeConfig_v2"))
+        store.send(.sectionSelected(.applications))
+        waitForUI("Applications is selected") { outline.selectedRow == 4 }
+        store.send(.addAppButtonTapped)
+        waitForUI("Application picker is presented") { window.sheets.count == 1 }
+        root.send(.session(.recoveryStarted))
+        waitForUI("Recovery dismisses the picker") { store.appPicker == nil && window.sheets.isEmpty }
+        XCTAssertFalse(store.canEdit)
+        XCTAssertNil(defaults.data(forKey: "GameModeConfig_v2"))
     }
 
     @MainActor
@@ -176,8 +227,8 @@ final class SettingsPresentationTests: XCTestCase {
         let savedConfiguration = try JSONEncoder().encode(config)
         defaults.set(savedConfiguration, forKey: "GameModeConfig_v2")
         defaults.set("logs", forKey: "GameModeSettingsSection")
-        let store = ConfigStore(defaults: defaults, isPreview: true)
-        let root = SettingsWindow(configStore: store).defaultAppStorage(defaults)
+        let store = SettingsTestDriver(defaults: defaults, isPreview: true)
+        let root = SettingsWindow(store: store.settingsStore)
         let window = NSWindow(contentViewController: NSHostingController(rootView: root))
         window.isReleasedWhenClosed = false
         window.setFrameOrigin(NSPoint(x: -10000, y: -10000))
@@ -236,25 +287,25 @@ final class SettingsPresentationTests: XCTestCase {
         let suite = "GameMode.DisplaySelectionTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
-        let store = ConfigStore(defaults: defaults, isPreview: true)
+        let store = SettingsTestDriver(defaults: defaults, isPreview: true)
         let enabled = MonitoredApp(id: UUID(), bundleID: "test.custom.game", name: "Custom game", isEnabled: true, source: .manual)
         let disabled = MonitoredApp(id: UUID(), bundleID: "test.disabled.game", name: "Disabled game", isEnabled: false, source: .manual, lockRefreshRate: true)
         store.config.monitoredApps = [enabled, disabled]
         store.config.mouse.gamingSpeed = 2.7
         store.config.display.isRefreshRateLockEnabled = true
         let original = defaults.data(forKey: "GameModeConfig_v2")
-        let pane = DisplaySettingsView(configStore: store)
+        let pane = DisplaySettingsView(store: store.settingsStore)
         XCTAssertEqual(pane.refreshRateApps.map(\.id), [enabled.id])
         XCTAssertFalse(pane.refreshRateBinding(for: enabled.id).wrappedValue)
         XCTAssertEqual(defaults.data(forKey: "GameModeConfig_v2"), original, "Presenting controls must not rewrite choices")
 
         pane.refreshRateBinding(for: enabled.id).wrappedValue = true
-        var reloaded = ConfigStore(defaults: defaults, isPreview: true).config
+        var reloaded = SettingsTestDriver(defaults: defaults, isPreview: true).config
         XCTAssertTrue(try XCTUnwrap(reloaded.monitoredApps.first { $0.id == enabled.id }).lockRefreshRate)
         XCTAssertEqual(reloaded.monitoredApps[1], disabled)
         XCTAssertEqual(reloaded.mouse.gamingSpeed, 2.7)
         pane.refreshRateBinding(for: enabled.id).wrappedValue = false
-        reloaded = ConfigStore(defaults: defaults, isPreview: true).config
+        reloaded = SettingsTestDriver(defaults: defaults, isPreview: true).config
         XCTAssertFalse(reloaded.monitoredApps[0].lockRefreshRate)
         XCTAssertTrue(reloaded.monitoredApps[1].lockRefreshRate)
     }
@@ -344,58 +395,37 @@ final class SettingsPresentationTests: XCTestCase {
     }
 
     @MainActor
-    func testPreviousRecorderCannotStopNewRecordingSession() {
+    func testRecorderEscapeRemovesMonitorBeforeStreamFinishes() async throws {
         let monitor = FakeShortcutMonitor()
-        let session = ShortcutRecordingSession(addMonitor: monitor.install, removeMonitor: monitor.remove)
-        defer { session.stop() }
-        let firstID = UUID()
-        let secondID = UUID()
-        session.start(id: firstID) { _, _ in XCTFail("No key was sent") }
-        session.start(id: secondID) { _, _ in XCTFail("No key was sent") }
-        session.stop(id: firstID)
-        XCTAssertEqual(session.activeID, secondID)
-        session.stop(id: secondID)
-        XCTAssertNil(session.activeID)
-        XCTAssertEqual(monitor.installCount, 2)
-        XCTAssertEqual(monitor.removeCount, 2)
-        XCTAssertTrue(monitor.activeTokens.isEmpty)
-    }
-
-    @MainActor
-    func testRecorderCancelsAndRemovesMonitorBeforeAnnouncingInactive() throws {
-        let monitor = FakeShortcutMonitor()
-        let session = ShortcutRecordingSession(addMonitor: monitor.install, removeMonitor: monitor.remove)
-        session.start(id: UUID()) { _, _ in XCTFail("Escape must not record a shortcut") }
-        let observation = session.$activeID.dropFirst().sink { id in
-            if id == nil { XCTAssertTrue(monitor.activeTokens.isEmpty) }
-        }
-        defer { observation.cancel(); session.stop() }
+        let stream = ShortcutRecordingClient.stream(addMonitor: monitor.install, removeMonitor: monitor.remove)
         let escape = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53))
         XCTAssertNil(monitor.handler?(escape))
-        XCTAssertNil(session.activeID)
+        XCTAssertTrue(monitor.activeTokens.isEmpty)
+        var iterator = stream.makeAsyncIterator()
+        let key = await iterator.next()
+        XCTAssertNil(key)
         XCTAssertEqual(monitor.removeCount, 1)
     }
 
     @MainActor
-    func testRecorderDeinitializationRemovesItsMonitor() {
+    func testRecorderCancellationRemovesMonitor() async {
         let monitor = FakeShortcutMonitor()
-        weak var releasedSession: ShortcutRecordingSession?
-        autoreleasepool {
-            let session = ShortcutRecordingSession(addMonitor: monitor.install, removeMonitor: monitor.remove)
-            releasedSession = session
-            session.start(id: UUID()) { _, _ in }
-            XCTAssertEqual(monitor.activeTokens.count, 1)
-        }
-        XCTAssertNil(releasedSession)
+        let stream = ShortcutRecordingClient.stream(addMonitor: monitor.install, removeMonitor: monitor.remove)
+        let task = Task { for await _ in stream {} }
+        await Task.yield()
+        task.cancel()
+        await task.value
+        for _ in 0..<20 where !monitor.activeTokens.isEmpty { await Task.yield() }
         XCTAssertTrue(monitor.activeTokens.isEmpty)
         XCTAssertEqual(monitor.removeCount, 1)
     }
 
     @MainActor
-    func testRecorderInstallationFailureEndsRecording() {
-        let session = ShortcutRecordingSession(addMonitor: { _ in nil }, removeMonitor: { _ in XCTFail("No monitor was installed") })
-        session.start(id: UUID()) { _, _ in XCTFail("No monitor was installed") }
-        XCTAssertNil(session.activeID)
+    func testRecorderInstallationFailureFinishesStream() async {
+        let stream = ShortcutRecordingClient.stream(addMonitor: { _ in nil }, removeMonitor: { _ in XCTFail("No monitor was installed") })
+        var iterator = stream.makeAsyncIterator()
+        let key = await iterator.next()
+        XCTAssertNil(key)
     }
 
     @MainActor
@@ -565,7 +595,7 @@ final class SettingsPresentationTests: XCTestCase {
         let suite = "GameMode.SettingsPresentationTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
-        let store = ConfigStore(defaults: defaults, isPreview: true)
+        let store = SettingsTestDriver(defaults: defaults, isPreview: true)
         XCTAssertTrue(store.canChangeMode)
         store.isTransitioning = true
         XCTAssertFalse(store.canChangeMode)
@@ -573,10 +603,12 @@ final class SettingsPresentationTests: XCTestCase {
         store.isTransitioning = false
         XCTAssertFalse(store.canChangeMode)
         store.recoveryRequired = false
-        store.configurationLoadError = "Unreadable configuration"
-        XCTAssertFalse(store.canChangeMode)
-        store.configurationLoadError = nil
         XCTAssertTrue(store.canChangeMode)
+        defaults.set(Data("Unreadable configuration".utf8), forKey: "GameModeConfig_v2")
+        let damaged = SettingsTestDriver(defaults: defaults, isPreview: true)
+        XCTAssertFalse(damaged.canChangeMode)
+        damaged.resetAllSavedData()
+        XCTAssertTrue(damaged.canChangeMode)
     }
 
     @MainActor
@@ -832,10 +864,10 @@ final class SettingsPresentationTests: XCTestCase {
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
         defaults.set(section.rawValue, forKey: "GameModeSettingsSection")
-        let store = ConfigStore(defaults: defaults, isPreview: true)
+        let store = SettingsTestDriver(defaults: defaults, isPreview: true)
         store.isAccessibilityGranted = true
-        store.requestedSettingsSection = section.rawValue
-        let root = SettingsWindow(configStore: store).defaultAppStorage(defaults)
+        store.settingsStore.send(.sectionSelected(section))
+        let root = SettingsWindow(store: store.settingsStore)
         let controller = NSHostingController(rootView: root)
         let window = NSWindow(contentRect: NSRect(origin: NSPoint(x: -10000, y: -10000), size: size), styleMask: [.titled, .closable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

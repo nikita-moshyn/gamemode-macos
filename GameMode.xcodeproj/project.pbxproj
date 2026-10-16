@@ -7,12 +7,34 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		F10001000000000000000001 /* FunctionKeySettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10002000000000000000001 /* FunctionKeySettingsTests.swift */; };
+		EF0001000000000000000018 /* SettingsTestDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF0002000000000000000018 /* SettingsTestDriver.swift */; };
+		EE000E000000000000000021 /* PerceptionCore in Frameworks */ = {isa = PBXBuildFile; productRef = EE000C000000000000000021 /* PerceptionCore */; };
+		EE000D000000000000000021 /* PerceptionCore in Frameworks */ = {isa = PBXBuildFile; productRef = EE000B000000000000000021 /* PerceptionCore */; };
+		EE000E000000000000000020 /* Clocks in Frameworks */ = {isa = PBXBuildFile; productRef = EE000C000000000000000020 /* Clocks */; };
+		EE000D000000000000000020 /* Clocks in Frameworks */ = {isa = PBXBuildFile; productRef = EE000B000000000000000020 /* Clocks */; };
+		EF0001000000000000000019 /* GameModeFeatureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF0002000000000000000019 /* GameModeFeatureTests.swift */; };
+		EF0001000000000000000017 /* ShortcutRecordingClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF0002000000000000000017 /* ShortcutRecordingClient.swift */; };
+		EF0001000000000000000016 /* GameModeFeature.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF0002000000000000000016 /* GameModeFeature.swift */; };
+		EF0001000000000000000015 /* AppPlatformClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF0002000000000000000015 /* AppPlatformClient.swift */; };
+		EF0001000000000000000014 /* GameEngineClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF0002000000000000000014 /* GameEngineClient.swift */; };
+		EF0001000000000000000013 /* SettingsNavigationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF0002000000000000000013 /* SettingsNavigationTests.swift */; };
+		EF0001000000000000000012 /* SettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF0002000000000000000012 /* SettingsSection.swift */; };
+		EF0001000000000000000011 /* ApplicationPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF0002000000000000000011 /* ApplicationPicker.swift */; };
+		EF0001000000000000000010 /* SettingsViewClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF0002000000000000000010 /* SettingsViewClient.swift */; };
+		EF0001000000000000000004 /* ConcurrencyExtras in Frameworks */ = {isa = PBXBuildFile; productRef = EF0002000000000000000004 /* ConcurrencyExtras */; };
+		EF0001000000000000000003 /* AppSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF0002000000000000000003 /* AppSettingsTests.swift */; };
+		EF0001000000000000000002 /* SettingsClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF0002000000000000000002 /* SettingsClient.swift */; };
+		EF0001000000000000000001 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF0002000000000000000001 /* AppSettings.swift */; };
+		EE0001000000000000000001 /* GameSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE0002000000000000000001 /* GameSession.swift */; };
+		EE0001000000000000000002 /* GameSessionClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE0002000000000000000002 /* GameSessionClient.swift */; };
+		EE0001000000000000000003 /* GameSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE0002000000000000000003 /* GameSessionTests.swift */; };
+		EE0001000000000000000004 /* ComposableArchitecture in Frameworks */ = {isa = PBXBuildFile; productRef = EE000A000000000000000002 /* ComposableArchitecture */; };
+		EE0001000000000000000005 /* ComposableArchitecture in Frameworks */ = {isa = PBXBuildFile; productRef = EE000A000000000000000003 /* ComposableArchitecture */; };
 		BB0001000000000000000001 /* GameModeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0002000000000000000001 /* GameModeApp.swift */; };
 		BB0001000000000000000002 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0002000000000000000002 /* AppDelegate.swift */; };
-		BB0001000000000000000003 /* AppMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0002000000000000000003 /* AppMonitor.swift */; };
 		BB0001000000000000000004 /* AppDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0002000000000000000004 /* AppDetector.swift */; };
 		BB0001000000000000000005 /* SettingsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0002000000000000000005 /* SettingsManager.swift */; };
-		BB0001000000000000000006 /* ConfigStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0002000000000000000006 /* ConfigStore.swift */; };
 		BB0001000000000000000007 /* StateJournal.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0002000000000000000007 /* StateJournal.swift */; };
 		BB0001000000000000000008 /* GameModeConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0002000000000000000008 /* GameModeConfig.swift */; };
 		BB0001000000000000000009 /* MonitoredApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0002000000000000000009 /* MonitoredApp.swift */; };
@@ -53,6 +75,13 @@
 		DD0001000000000000000003 /* RecoveryControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD0002000000000000000003 /* RecoveryControllerTests.swift */; };
 		DD0001000000000000000004 /* SettingsPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD0002000000000000000004 /* SettingsPresentationTests.swift */; };
 		DD0001000000000000000005 /* AppWindowPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD0002000000000000000005 /* AppWindowPresentation.swift */; };
+		EE000D000000000000000010 /* Dependencies in Frameworks */ = {isa = PBXBuildFile; productRef = EE000B000000000000000010 /* Dependencies */; };
+		EE000E000000000000000010 /* Dependencies in Frameworks */ = {isa = PBXBuildFile; productRef = EE000C000000000000000010 /* Dependencies */; };
+		EE000D000000000000000011 /* CasePaths in Frameworks */ = {isa = PBXBuildFile; productRef = EE000B000000000000000011 /* CasePaths */; };
+		EE000E000000000000000011 /* CasePaths in Frameworks */ = {isa = PBXBuildFile; productRef = EE000C000000000000000011 /* CasePaths */; };
+		EE000D000000000000000012 /* IssueReporting in Frameworks */ = {isa = PBXBuildFile; productRef = EE000B000000000000000012 /* IssueReporting */; };
+		EE000E000000000000000012 /* IssueReporting in Frameworks */ = {isa = PBXBuildFile; productRef = EE000C000000000000000012 /* IssueReporting */; };
+		EE000E000000000000000013 /* ConcurrencyExtras in Frameworks */ = {isa = PBXBuildFile; productRef = EE000C000000000000000013 /* ConcurrencyExtras */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -66,13 +95,28 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		F10002000000000000000001 /* FunctionKeySettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FunctionKeySettingsTests.swift; sourceTree = "<group>"; };
+		EF0002000000000000000018 /* SettingsTestDriver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsTestDriver.swift; sourceTree = "<group>"; };
+		EF0002000000000000000019 /* GameModeFeatureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameModeFeatureTests.swift; sourceTree = "<group>"; };
+		EF0002000000000000000017 /* ShortcutRecordingClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutRecordingClient.swift; sourceTree = "<group>"; };
+		EF0002000000000000000016 /* GameModeFeature.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameModeFeature.swift; sourceTree = "<group>"; };
+		EF0002000000000000000015 /* AppPlatformClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppPlatformClient.swift; sourceTree = "<group>"; };
+		EF0002000000000000000014 /* GameEngineClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameEngineClient.swift; sourceTree = "<group>"; };
+		EF0002000000000000000013 /* SettingsNavigationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsNavigationTests.swift; sourceTree = "<group>"; };
+		EF0002000000000000000012 /* SettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSection.swift; sourceTree = "<group>"; };
+		EF0002000000000000000011 /* ApplicationPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationPicker.swift; sourceTree = "<group>"; };
+		EF0002000000000000000010 /* SettingsViewClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViewClient.swift; sourceTree = "<group>"; };
+		EF0002000000000000000003 /* AppSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettingsTests.swift; sourceTree = "<group>"; };
+		EF0002000000000000000002 /* SettingsClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsClient.swift; sourceTree = "<group>"; };
+		EF0002000000000000000001 /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
+		EE0002000000000000000001 /* GameSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameSession.swift; sourceTree = "<group>"; };
+		EE0002000000000000000002 /* GameSessionClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameSessionClient.swift; sourceTree = "<group>"; };
+		EE0002000000000000000003 /* GameSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameSessionTests.swift; sourceTree = "<group>"; };
 		ADDCA16A2F6E2ADA002C2D4F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		BB0002000000000000000001 /* GameModeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameModeApp.swift; sourceTree = "<group>"; };
 		BB0002000000000000000002 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
-		BB0002000000000000000003 /* AppMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppMonitor.swift; sourceTree = "<group>"; };
 		BB0002000000000000000004 /* AppDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDetector.swift; sourceTree = "<group>"; };
 		BB0002000000000000000005 /* SettingsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsManager.swift; sourceTree = "<group>"; };
-		BB0002000000000000000006 /* ConfigStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigStore.swift; sourceTree = "<group>"; };
 		BB0002000000000000000007 /* StateJournal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StateJournal.swift; sourceTree = "<group>"; };
 		BB0002000000000000000008 /* GameModeConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameModeConfig.swift; sourceTree = "<group>"; };
 		BB0002000000000000000009 /* MonitoredApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitoredApp.swift; sourceTree = "<group>"; };
@@ -123,6 +167,13 @@
 			buildActionMask = 2147483647;
 			files = (
 				BB000100000000000000001D /* Sparkle in Frameworks */,
+				EE0001000000000000000004 /* ComposableArchitecture in Frameworks */,
+				EF0001000000000000000004 /* ConcurrencyExtras in Frameworks */,
+				EE000D000000000000000012 /* IssueReporting in Frameworks */,
+				EE000D000000000000000011 /* CasePaths in Frameworks */,
+				EE000D000000000000000020 /* Clocks in Frameworks */,
+				EE000D000000000000000021 /* PerceptionCore in Frameworks */,
+				EE000D000000000000000010 /* Dependencies in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -130,6 +181,13 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				EE0001000000000000000005 /* ComposableArchitecture in Frameworks */,
+				EE000E000000000000000013 /* ConcurrencyExtras in Frameworks */,
+				EE000E000000000000000012 /* IssueReporting in Frameworks */,
+				EE000E000000000000000011 /* CasePaths in Frameworks */,
+				EE000E000000000000000020 /* Clocks in Frameworks */,
+				EE000E000000000000000021 /* PerceptionCore in Frameworks */,
+				EE000E000000000000000010 /* Dependencies in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -192,10 +250,18 @@
 		BB0004000000000000000005 /* Core */ = {
 			isa = PBXGroup;
 			children = (
-				BB0002000000000000000003 /* AppMonitor.swift */,
+				EE0002000000000000000001 /* GameSession.swift */,
+				EF0002000000000000000002 /* SettingsClient.swift */,
+				EF0002000000000000000001 /* AppSettings.swift */,
+				EF0002000000000000000011 /* ApplicationPicker.swift */,
+				EF0002000000000000000014 /* GameEngineClient.swift */,
+				EF0002000000000000000015 /* AppPlatformClient.swift */,
+				EF0002000000000000000016 /* GameModeFeature.swift */,
+				EF0002000000000000000017 /* ShortcutRecordingClient.swift */,
+				EF0002000000000000000010 /* SettingsViewClient.swift */,
+				EE0002000000000000000002 /* GameSessionClient.swift */,
 				BB0002000000000000000004 /* AppDetector.swift */,
 				BB0002000000000000000005 /* SettingsManager.swift */,
-				BB0002000000000000000006 /* ConfigStore.swift */,
 				BB0002000000000000000007 /* StateJournal.swift */,
 				DD0002000000000000000001 /* RecoveryController.swift */,
 				BB0002000000000000000018 /* HotkeyManager.swift */,
@@ -210,6 +276,7 @@
 			isa = PBXGroup;
 			children = (
 				BB0002000000000000000008 /* GameModeConfig.swift */,
+				EF0002000000000000000012 /* SettingsSection.swift */,
 				BB0002000000000000000009 /* MonitoredApp.swift */,
 				BB000200000000000000000A /* ShortcutEntry.swift */,
 				BB000200000000000000000B /* SymbolicHotkeys.swift */,
@@ -254,6 +321,12 @@
 				CC0002000000000000000007 /* StateJournalTests.swift */,
 				DD0002000000000000000004 /* SettingsPresentationTests.swift */,
 				DD0002000000000000000003 /* RecoveryControllerTests.swift */,
+				EE0002000000000000000003 /* GameSessionTests.swift */,
+				EF0002000000000000000003 /* AppSettingsTests.swift */,
+				EF0002000000000000000019 /* GameModeFeatureTests.swift */,
+				F10002000000000000000001 /* FunctionKeySettingsTests.swift */,
+				EF0002000000000000000018 /* SettingsTestDriver.swift */,
+				EF0002000000000000000013 /* SettingsNavigationTests.swift */,
 			);
 			path = GameModeTests;
 			sourceTree = "<group>";
@@ -276,6 +349,13 @@
 			name = GameMode;
 			packageProductDependencies = (
 				BB000200000000000000001D /* Sparkle */,
+				EE000A000000000000000002 /* ComposableArchitecture */,
+				EF0002000000000000000004 /* ConcurrencyExtras */,
+				EE000B000000000000000012 /* IssueReporting */,
+				EE000B000000000000000011 /* CasePaths */,
+				EE000B000000000000000020 /* Clocks */,
+				EE000B000000000000000021 /* PerceptionCore */,
+				EE000B000000000000000010 /* Dependencies */,
 			);
 			productName = GameMode;
 			productReference = BB0002000000000000000014 /* GameMode.app */;
@@ -294,6 +374,15 @@
 				CC000B000000000000000001 /* PBXTargetDependency */,
 			);
 			name = GameModeTests;
+			packageProductDependencies = (
+				EE000A000000000000000003 /* ComposableArchitecture */,
+				EE000C000000000000000013 /* ConcurrencyExtras */,
+				EE000C000000000000000012 /* IssueReporting */,
+				EE000C000000000000000011 /* CasePaths */,
+				EE000C000000000000000020 /* Clocks */,
+				EE000C000000000000000021 /* PerceptionCore */,
+				EE000C000000000000000010 /* Dependencies */,
+			);
 			productName = GameModeTests;
 			productReference = CC0002000000000000000008 /* GameModeTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
@@ -318,7 +407,14 @@
 			);
 			mainGroup = BB0004000000000000000001;
 			packageReferences = (
+				EE000A000000000000000021 /* XCRemoteSwiftPackageReference "swift-perception" */,
+				EE000A000000000000000020 /* XCRemoteSwiftPackageReference "swift-clocks" */,
+				EE000A000000000000000013 /* XCRemoteSwiftPackageReference "swift-concurrency-extras" */,
+				EE000A000000000000000012 /* XCRemoteSwiftPackageReference "swift-issue-reporting" */,
+				EE000A000000000000000011 /* XCRemoteSwiftPackageReference "swift-case-paths" */,
+				EE000A000000000000000010 /* XCRemoteSwiftPackageReference "swift-dependencies" */,
 				BB000A00000000000000001D /* XCRemoteSwiftPackageReference "Sparkle" */,
+				EE000A000000000000000001 /* XCRemoteSwiftPackageReference "swift-composable-architecture" */,
 			);
 			productRefGroup = BB0004000000000000000003 /* Products */;
 			projectDirPath = "";
@@ -338,10 +434,19 @@
 				BB0001000000000000000001 /* GameModeApp.swift in Sources */,
 				BB0001000000000000000002 /* AppDelegate.swift in Sources */,
 				DD0001000000000000000005 /* AppWindowPresentation.swift in Sources */,
-				BB0001000000000000000003 /* AppMonitor.swift in Sources */,
+				EE0001000000000000000001 /* GameSession.swift in Sources */,
+				EF0001000000000000000002 /* SettingsClient.swift in Sources */,
+				EF0001000000000000000001 /* AppSettings.swift in Sources */,
+				EF0001000000000000000012 /* SettingsSection.swift in Sources */,
+				EF0001000000000000000011 /* ApplicationPicker.swift in Sources */,
+				EF0001000000000000000014 /* GameEngineClient.swift in Sources */,
+				EF0001000000000000000015 /* AppPlatformClient.swift in Sources */,
+				EF0001000000000000000016 /* GameModeFeature.swift in Sources */,
+				EF0001000000000000000017 /* ShortcutRecordingClient.swift in Sources */,
+				EF0001000000000000000010 /* SettingsViewClient.swift in Sources */,
+				EE0001000000000000000002 /* GameSessionClient.swift in Sources */,
 				BB0001000000000000000004 /* AppDetector.swift in Sources */,
 				BB0001000000000000000005 /* SettingsManager.swift in Sources */,
-				BB0001000000000000000006 /* ConfigStore.swift in Sources */,
 				BB0001000000000000000007 /* StateJournal.swift in Sources */,
 				DD0001000000000000000001 /* RecoveryController.swift in Sources */,
 				BB0001000000000000000008 /* GameModeConfig.swift in Sources */,
@@ -386,6 +491,12 @@
 				CC0001000000000000000007 /* StateJournalTests.swift in Sources */,
 				DD0001000000000000000004 /* SettingsPresentationTests.swift in Sources */,
 				DD0001000000000000000003 /* RecoveryControllerTests.swift in Sources */,
+				EE0001000000000000000003 /* GameSessionTests.swift in Sources */,
+				EF0001000000000000000003 /* AppSettingsTests.swift in Sources */,
+				EF0001000000000000000019 /* GameModeFeatureTests.swift in Sources */,
+				F10001000000000000000001 /* FunctionKeySettingsTests.swift in Sources */,
+				EF0001000000000000000018 /* SettingsTestDriver.swift in Sources */,
+				EF0001000000000000000013 /* SettingsNavigationTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -632,6 +743,16 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		EE000A000000000000000021 /* XCRemoteSwiftPackageReference "swift-perception" */ = {isa = XCRemoteSwiftPackageReference; repositoryURL = "https://github.com/pointfreeco/swift-perception"; requirement = {kind = exactVersion; version = 2.0.12; }; };
+		EE000A000000000000000020 /* XCRemoteSwiftPackageReference "swift-clocks" */ = {isa = XCRemoteSwiftPackageReference; repositoryURL = "https://github.com/pointfreeco/swift-clocks"; requirement = {kind = exactVersion; version = 1.1.1; }; };
+		EE000A000000000000000001 /* XCRemoteSwiftPackageReference "swift-composable-architecture" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/pointfreeco/swift-composable-architecture";
+			requirement = {
+				kind = exactVersion;
+				version = 1.26.2;
+			};
+		};
 		BB000A00000000000000001D /* XCRemoteSwiftPackageReference "Sparkle" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/sparkle-project/Sparkle";
@@ -640,14 +761,68 @@
 				minimumVersion = 2.6.4;
 			};
 		};
+		EE000A000000000000000010 /* XCRemoteSwiftPackageReference "swift-dependencies" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/pointfreeco/swift-dependencies";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.17.1;
+			};
+		};
+		EE000A000000000000000011 /* XCRemoteSwiftPackageReference "swift-case-paths" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/pointfreeco/swift-case-paths";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.10.0;
+			};
+		};
+		EE000A000000000000000012 /* XCRemoteSwiftPackageReference "swift-issue-reporting" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/pointfreeco/swift-issue-reporting";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.1.1;
+			};
+		};
+		EE000A000000000000000013 /* XCRemoteSwiftPackageReference "swift-concurrency-extras" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/pointfreeco/swift-concurrency-extras";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.4.1;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		EE000C000000000000000021 /* PerceptionCore */ = {isa = XCSwiftPackageProductDependency; package = EE000A000000000000000021 /* XCRemoteSwiftPackageReference "swift-perception" */; productName = PerceptionCore; };
+		EE000B000000000000000021 /* PerceptionCore */ = {isa = XCSwiftPackageProductDependency; package = EE000A000000000000000021 /* XCRemoteSwiftPackageReference "swift-perception" */; productName = PerceptionCore; };
+		EE000C000000000000000020 /* Clocks */ = {isa = XCSwiftPackageProductDependency; package = EE000A000000000000000020 /* XCRemoteSwiftPackageReference "swift-clocks" */; productName = Clocks; };
+		EE000B000000000000000020 /* Clocks */ = {isa = XCSwiftPackageProductDependency; package = EE000A000000000000000020 /* XCRemoteSwiftPackageReference "swift-clocks" */; productName = Clocks; };
+		EF0002000000000000000004 /* ConcurrencyExtras */ = {isa = XCSwiftPackageProductDependency; package = EE000A000000000000000013 /* XCRemoteSwiftPackageReference "swift-concurrency-extras" */; productName = ConcurrencyExtras; };
+		EE000A000000000000000002 /* ComposableArchitecture */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = EE000A000000000000000001 /* XCRemoteSwiftPackageReference "swift-composable-architecture" */;
+			productName = ComposableArchitecture;
+		};
+		EE000A000000000000000003 /* ComposableArchitecture */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = EE000A000000000000000001 /* XCRemoteSwiftPackageReference "swift-composable-architecture" */;
+			productName = ComposableArchitecture;
+		};
 		BB000200000000000000001D /* Sparkle */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = BB000A00000000000000001D /* XCRemoteSwiftPackageReference "Sparkle" */;
 			productName = Sparkle;
 		};
+		EE000B000000000000000010 /* Dependencies */ = {isa = XCSwiftPackageProductDependency; package = EE000A000000000000000010 /* XCRemoteSwiftPackageReference "swift-dependencies" */; productName = Dependencies; };
+		EE000C000000000000000010 /* Dependencies */ = {isa = XCSwiftPackageProductDependency; package = EE000A000000000000000010 /* XCRemoteSwiftPackageReference "swift-dependencies" */; productName = Dependencies; };
+		EE000B000000000000000011 /* CasePaths */ = {isa = XCSwiftPackageProductDependency; package = EE000A000000000000000011 /* XCRemoteSwiftPackageReference "swift-case-paths" */; productName = CasePaths; };
+		EE000C000000000000000011 /* CasePaths */ = {isa = XCSwiftPackageProductDependency; package = EE000A000000000000000011 /* XCRemoteSwiftPackageReference "swift-case-paths" */; productName = CasePaths; };
+		EE000B000000000000000012 /* IssueReporting */ = {isa = XCSwiftPackageProductDependency; package = EE000A000000000000000012 /* XCRemoteSwiftPackageReference "swift-issue-reporting" */; productName = IssueReporting; };
+		EE000C000000000000000012 /* IssueReporting */ = {isa = XCSwiftPackageProductDependency; package = EE000A000000000000000012 /* XCRemoteSwiftPackageReference "swift-issue-reporting" */; productName = IssueReporting; };
+		EE000C000000000000000013 /* ConcurrencyExtras */ = {isa = XCSwiftPackageProductDependency; package = EE000A000000000000000013 /* XCRemoteSwiftPackageReference "swift-concurrency-extras" */; productName = ConcurrencyExtras; };
 /* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = BB0008000000000000000001 /* Project object */;
