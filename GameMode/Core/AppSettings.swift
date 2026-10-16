@@ -156,7 +156,7 @@ struct AppSettings {
                 client.saveSelectedSection(state.selectedSection)
                 return state.selectedSection == .shortcuts ? .run { send in await send(.refreshShortcuts) } : .none
             case .sectionSelected(let section):
-                guard let section, section != state.selectedSection else { return .none }
+                guard let section, SettingsSection.availableCases.contains(section), section != state.selectedSection else { return .none }
                 state.selectedSection = section
                 state.appPicker = nil
                 state.confirmation = nil

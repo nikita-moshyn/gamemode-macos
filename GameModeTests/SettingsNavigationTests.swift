@@ -44,10 +44,39 @@ final class SettingsNavigationTests: XCTestCase {
         }
         await store.send(.sectionSelected(.shortcuts))
         await store.send(.sectionSelected(nil))
+        #if FEATURE_DISPLAYS
         await store.send(.sectionSelected(.display)) { $0.selectedSection = .display }
+        #else
+        await store.send(.sectionSelected(.display))
+        #endif
         await store.send(.sectionSelected(.system)) { $0.selectedSection = .system }
+        #if FEATURE_DISPLAYS
         XCTAssertEqual(sections.value, [.shortcuts, .display, .system])
+        #else
+        XCTAssertEqual(sections.value, [.shortcuts, .system])
+        #endif
         XCTAssertEqual(saved.value.count, 1)
+    }
+
+    func testSavedDisplayDestinationRespectsBuildAvailabilityWithoutErasingPreferences() throws {
+        let defaults = UserDefaults(suiteName: "GameMode.DisplayAvailability.\(UUID().uuidString)")!
+        defer { defaults.removeObject(forKey: "GameModeSettingsSection"); defaults.removeObject(forKey: "GameModeConfig_v2") }
+        var config = GameModeConfig.defaults
+        config.display.isRefreshRateLockEnabled = true
+        config.display.autoDisableLowPowerMode = true
+        let data = try JSONEncoder().encode(config)
+        defaults.set(data, forKey: "GameModeConfig_v2")
+        defaults.set("display", forKey: "GameModeSettingsSection")
+        let loaded = SettingsClient.preferences(defaults, detectShortcuts: { [] }).load()
+        #if FEATURE_DISPLAYS
+        XCTAssertTrue(SettingsSection.availableCases.contains(.display))
+        XCTAssertEqual(loaded.selectedSection, .display)
+        #else
+        XCTAssertFalse(SettingsSection.availableCases.contains(.display))
+        XCTAssertEqual(loaded.selectedSection, .general)
+        #endif
+        XCTAssertEqual(loaded.config, config)
+        XCTAssertEqual(defaults.data(forKey: "GameModeConfig_v2"), data)
     }
 
     func testSidebarDiscoveryCannotPublishBeforeTheSelectionCallbackReturns() async {

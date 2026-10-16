@@ -338,6 +338,9 @@ struct GameModeFeature {
     }
 
     private func enqueue(_ operation: GameEngineClient.Operation, state: inout State) {
+        #if !FEATURE_DISPLAYS
+        guard operation != .display else { return }
+        #endif
         guard state.session.recoveryReady, state.session.desiredMode else { return }
         if !state.pendingOperations.contains(operation) { state.pendingOperations.append(operation) }
     }

@@ -190,12 +190,12 @@ final class SettingsPresentationTests: XCTestCase {
             store.send(.sectionSelected(.system))
         }
         waitForUI("The last requested destination wins") {
-            store.selectedSection == .system && outline.selectedRow == 6
+            store.selectedSection == .system && outline.selectedRow == SettingsSection.availableCases.firstIndex(of: .system)
         }
         XCTAssertEqual(defaults.string(forKey: "GameModeSettingsSection"), "system")
         XCTAssertNil(defaults.data(forKey: "GameModeConfig_v2"))
         store.send(.sectionSelected(.applications))
-        waitForUI("Applications is selected") { outline.selectedRow == 4 }
+        waitForUI("Applications is selected") { outline.selectedRow == SettingsSection.availableCases.firstIndex(of: .applications) }
         store.send(.addAppButtonTapped)
         waitForUI("Application picker is presented") { window.sheets.count == 1 }
         root.send(.session(.recoveryStarted))
@@ -243,8 +243,8 @@ final class SettingsPresentationTests: XCTestCase {
         XCTAssertFalse(store.config.display.preferExactModeSwitching)
         XCTAssertFalse(store.config.display.allowOverlayFallback)
         XCTAssertEqual(store.config.mouse.gamingSpeed, 2.7)
-        for identifier in ["general", "shortcuts", "mouse", "display", "applications", "hotkeys", "system"] {
-            XCTAssertEqual(SettingsSection.resolve(identifier)?.rawValue, identifier)
+        for section in SettingsSection.availableCases {
+            XCTAssertEqual(SettingsSection.resolve(section.rawValue), section)
         }
     }
 
@@ -282,6 +282,7 @@ final class SettingsPresentationTests: XCTestCase {
         XCTAssertFalse(app.matches(bundleID: "com.other.game"))
     }
 
+    #if FEATURE_DISPLAYS
     @MainActor
     func testDisplayApplicationSelectionsRemainEditableAndPersistWithoutResettingOtherSettings() throws {
         let suite = "GameMode.DisplaySelectionTests.\(UUID().uuidString)"
@@ -309,6 +310,8 @@ final class SettingsPresentationTests: XCTestCase {
         XCTAssertFalse(reloaded.monitoredApps[0].lockRefreshRate)
         XCTAssertTrue(reloaded.monitoredApps[1].lockRefreshRate)
     }
+
+    #endif
 
     func testIdenticalDisplaysUseUniqueStableIDsAndInheritExistingSelections() throws {
         let first = DisplayIdentity(displayID: 1, uuid: "SCREEN-A", vendor: 10, model: 20, serial: 0)
@@ -851,7 +854,7 @@ final class SettingsPresentationTests: XCTestCase {
         let sizes = [NSSize(width: 820, height: 600), NSSize(width: 720, height: 500)]
         for (appearanceName, appearance) in appearances {
             for size in sizes {
-                for section in SettingsSection.allCases {
+                for section in SettingsSection.availableCases {
                     try renderSettings(section: section, appearance: appearance, size: size, output: output.appendingPathComponent("\(section.rawValue)-\(Int(size.width))x\(Int(size.height))-\(appearanceName).png"))
                 }
             }
@@ -892,7 +895,7 @@ final class SettingsPresentationTests: XCTestCase {
             try viewHierarchy(view).write(to: output.deletingLastPathComponent().appendingPathComponent("native-view-hierarchy.txt"), atomically: true, encoding: .utf8)
         }
         if section == .general, let outline = findOutlineView(in: view) {
-            XCTAssertEqual(outline.numberOfRows, 7)
+            XCTAssertEqual(outline.numberOfRows, SettingsSection.availableCases.count)
             let sidebarBitmap = try XCTUnwrap(outline.bitmapImageRepForCachingDisplay(in: outline.bounds))
             outline.cacheDisplay(in: outline.bounds, to: sidebarBitmap)
             let sidebarData = try XCTUnwrap(sidebarBitmap.representation(using: .png, properties: [:]))

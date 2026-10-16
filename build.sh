@@ -4,6 +4,7 @@
 #
 # Usage:
 #   ./build.sh                         Build using xcodebuild and Swift packages
+#   ./build.sh --channel beta          Include beta-only features
 #   ./build.sh CODE_SIGN_IDENTITY=-    Build with ad-hoc signing
 # Additional arguments are forwarded to xcodebuild.
 # Requires Xcode 27 / Swift 6.4 or newer. Trust the package macros in Xcode
@@ -49,8 +50,15 @@ if [ "${1:-}" = "swiftc" ]; then
     exit 2
 fi
 
+CHANNEL=stable
+if [ "${1:-}" = "--channel" ]; then
+    if [ "$#" -lt 2 ]; then echo "--channel requires stable, beta, or rc" >&2; exit 2; fi
+    CHANNEL="${2:-}"
+    shift 2
+fi
+case "$CHANNEL" in stable|beta|rc) ;; *) echo "Invalid channel: $CHANNEL (use stable, beta, or rc)" >&2; exit 2 ;; esac
 mkdir -p "${BUILD_DIR}"
-build_with_xcodebuild "$@"
+build_with_xcodebuild "$@" GAMEMODE_CHANNEL="$CHANNEL"
 
 echo ""
 echo "==> First-run setup:"

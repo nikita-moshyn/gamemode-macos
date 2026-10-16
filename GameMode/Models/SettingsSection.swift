@@ -12,6 +12,14 @@ enum SettingsSection: String, CaseIterable, Identifiable, Sendable {
     // Retain persisted identifiers while presenting the new names and order.
     case general, shortcuts, mouse, display, applications, hotkeys, system
 
+    static var availableCases: [SettingsSection] {
+        #if FEATURE_DISPLAYS
+        allCases
+        #else
+        allCases.filter { $0 != .display }
+        #endif
+    }
+
     var id: String { rawValue }
 
     var title: String {
@@ -39,7 +47,9 @@ enum SettingsSection: String, CaseIterable, Identifiable, Sendable {
     }
 
     static func resolve(_ identifier: String) -> SettingsSection? {
-        identifier == "logs" ? .system : SettingsSection(rawValue: identifier)
+        let section = identifier == "logs" ? .system : SettingsSection(rawValue: identifier)
+        guard let section, availableCases.contains(section) else { return nil }
+        return section
     }
 }
 

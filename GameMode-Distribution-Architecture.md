@@ -1,5 +1,7 @@
 # GameMode — Distribution & Auto-Update Architecture
 
+> Historical distribution design. The implemented workflow now uses manual releases with a Publish checkbox, immutable artifacts for retries, and beta-only Displays. See [Branching & Release Strategy](docs/BRANCHING_STRATEGY.md) for current operation and repository setup.
+
 ## Overview
 
 ```

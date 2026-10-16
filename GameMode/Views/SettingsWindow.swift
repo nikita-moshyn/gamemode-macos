@@ -21,7 +21,7 @@ struct SettingsWindow: View {
     var body: some View {
         NavigationSplitView {
             List(selection: sidebarSelection) {
-                ForEach(SettingsSection.allCases) { section in
+                ForEach(SettingsSection.availableCases) { section in
                     Label(section.title, systemImage: section.icon)
                         .tag(section)
                         .padding(.vertical, 3)
@@ -78,7 +78,11 @@ struct SettingsWindow: View {
         case .mouse:
             MouseSettingsView(store: store)
         case .display:
+            #if FEATURE_DISPLAYS
             DisplaySettingsView(store: store)
+            #else
+            GeneralSettingsView(store: store)
+            #endif
         case .system:
             SystemSettingsView(store: store)
         }

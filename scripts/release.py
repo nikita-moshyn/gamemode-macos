@@ -47,17 +47,35 @@ def release_metadata(tag):
     }
 
 
-def validate_source(repo, tag):
+def manual_tag(version, channel, number):
+    if not re.fullmatch(rf"{NUMBER}\.{NUMBER}\.{NUMBER}", version):
+        raise ValueError("Version must have the form X.Y.Z, without a v prefix or channel suffix")
+    if channel not in {"stable", "beta", "rc"}:
+        raise ValueError("Channel must be stable, beta, or rc")
+    if channel != "stable" and not re.fullmatch(r"[1-9][0-9]*", number):
+        raise ValueError("Beta/RC number must be a positive integer")
+    return f"v{version}" + (f"-{channel}.{number}" if channel != "stable" else "")
+
+
+def validate_commit(commit):
+    if not re.fullmatch(r"[0-9a-f]{40}", commit):
+        raise ValueError("Source commit must be a full, lowercase 40-character commit SHA; branch names can move on retries")
+    return commit
+
+
+def validate_source(repo, tag, commit=None):
     branch = release_metadata(tag)["source_branch"]
+    source = validate_commit(commit) if commit is not None else f"refs/tags/{tag}"
     try:
-        commit = subprocess.run(["git", "rev-parse", "--verify", f"refs/tags/{tag}^{{commit}}"], cwd=repo, check=True, capture_output=True, text=True).stdout.strip()
+        commit = subprocess.run(["git", "rev-parse", "--verify", f"{source}^{{commit}}"], cwd=repo, check=True, capture_output=True, text=True).stdout.strip()
         branch_ref = f"refs/remotes/origin/{branch}"
         subprocess.run(["git", "rev-parse", "--verify", f"{branch_ref}^{{commit}}"], cwd=repo, check=True, capture_output=True, text=True)
         result = subprocess.run(["git", "merge-base", "--is-ancestor", commit, branch_ref], cwd=repo, capture_output=True, text=True)
     except subprocess.CalledProcessError as error:
-        raise ValueError(f"Cannot resolve {tag} or origin/{branch}; fetch the tag and source branch first") from error
+        raise ValueError(f"Cannot resolve {source} or origin/{branch}; fetch the source commit and branch first") from error
     if result.returncode != 0:
         raise ValueError(f"{tag} must point to a commit already merged into origin/{branch}. Promote code through a PR before tagging.")
+    return commit
 
 
 def validate_signature(signature):
@@ -119,7 +137,11 @@ def update_appcast(path, tag, signature, length):
         enclosure = previous.find("enclosure")
         build = previous.findtext(sparkle("version")) or enclosure.get(sparkle("version"))
         if build == meta["build_version"]:
-            channel.remove(previous)
+            expected_url = f"https://github.com/{REPOSITORY}/releases/download/{tag}/GameMode-{meta['version']}.zip"
+            if (enclosure.get("url"), enclosure.get(sparkle("edSignature")), enclosure.get("length")) != (expected_url, signature, str(length)):
+                raise ValueError(f"{tag} is already in the feed with a different archive; publish a new version")
+            # Keep the original publication date and avoid a feed commit on retries.
+            return
     item = ET.Element("item")
     ET.SubElement(item, "title").text = meta["display_name"]
     ET.SubElement(item, sparkle("version")).text = meta["build_version"]
@@ -149,6 +171,7 @@ def verify_bundle(app, tag):
         "CFBundleVersion": meta["build_version"],
         "CFBundleShortVersionString": meta["version"],
         "SUFeedURL": FEED_URL,
+        "GameModeReleaseChannel": meta["channel"],
     }.items():
         if info.get(key) != value:
             raise ValueError(f"{key}: expected {value}, got {info.get(key)}")
@@ -165,6 +188,14 @@ def main():
     source = commands.add_parser("validate-source")
     source.add_argument("--tag", required=True)
     source.add_argument("--repo", type=Path, default=Path.cwd())
+    source.add_argument("--commit")
+    prepare = commands.add_parser("prepare")
+    prepare.add_argument("--version", required=True)
+    prepare.add_argument("--channel", required=True)
+    prepare.add_argument("--number", default="1")
+    prepare.add_argument("--commit", required=True)
+    prepare.add_argument("--repo", type=Path, default=Path.cwd())
+    prepare.add_argument("--github-output", type=Path, required=True)
     appcast = commands.add_parser("appcast")
     appcast.add_argument("--path", type=Path, required=True)
     appcast.add_argument("--tag", required=True)
@@ -187,7 +218,13 @@ def main():
         elif args.command == "appcast":
             update_appcast(args.path, args.tag, args.signature, args.length)
         elif args.command == "validate-source":
-            validate_source(args.repo, args.tag)
+            validate_source(args.repo, args.tag, args.commit)
+        elif args.command == "prepare":
+            tag = manual_tag(args.version, args.channel, args.number)
+            commit = validate_source(args.repo, tag, args.commit)
+            metadata = {**release_metadata(tag), "commit": commit}
+            with args.github_output.open("a") as destination:
+                destination.write("".join(f"{key}={value}\n" for key, value in metadata.items()))
         elif args.command == "validate-appcast":
             validate_appcast(ET.parse(args.path))
         elif args.command == "verify-bundle":

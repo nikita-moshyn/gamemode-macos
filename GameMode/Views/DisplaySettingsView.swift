@@ -10,6 +10,7 @@ import ComposableArchitecture
 import SwiftUI
 import Combine
 
+#if FEATURE_DISPLAYS
 struct DisplaySettingsView: View {
     @Bindable var store: StoreOf<AppSettings>
 
@@ -284,3 +285,5 @@ struct DisplaySettingsView: View {
         )
     }
 }
+
+#endif

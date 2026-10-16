@@ -211,6 +211,7 @@ final class GameModeFeatureTests: XCTestCase {
         XCTAssertFalse(store.settings.runtime.isTransitioning)
     }
 
+    #if FEATURE_DISPLAYS
     func testAuxiliaryFailureDiscardsQueuedDisplayChanges() async {
         let harness = Harness(apps: [game(lock: true)])
         harness.setActive()
@@ -250,6 +251,23 @@ final class GameModeFeatureTests: XCTestCase {
         await task.finish()
         XCTAssertFalse(store.settings.runtime.isTransitioning)
     }
+
+    #else
+    func testSavedDisplayPreferencesCannotScheduleChangesInStableBuilds() async {
+        let harness = Harness(apps: [game(lock: true)])
+        harness.initial.settings.config.display.isRefreshRateLockEnabled = true
+        harness.initial.settings.config.display.autoDisableLowPowerMode = true
+        harness.setActive()
+        let store = harness.store()
+        await store.send(.platform(.launched("test.game"))).finish()
+        XCTAssertTrue(store.pendingOperations.isEmpty)
+        XCTAssertFalse(harness.operations.contains { $0.operation == .display })
+        let request = GameEngineClient.Request(id: 1, operation: .display)
+        var context = store.state.engineContext
+        context.request = request
+        XCTAssertFalse(context.allows(request))
+    }
+    #endif
 
     func testLateRecoverySuccessCannotClearAnExternalFailureOrResetPreferences() async {
         let harness = Harness(apps: [game()])

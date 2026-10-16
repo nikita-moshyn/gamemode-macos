@@ -37,7 +37,13 @@ struct GameEngineClient: Sendable {
             case .startup, .recover, .accept, .reset: return session.phase == .recovering
             case .terminate: return session.phase == .terminating
             case .mouse: return session.recoveryReady && session.appliedMode
-            case .inputGuard, .display: return session.recoveryReady && session.appliedMode && session.desiredMode
+            case .inputGuard: return session.recoveryReady && session.appliedMode && session.desiredMode
+            case .display:
+                #if FEATURE_DISPLAYS
+                return session.recoveryReady && session.appliedMode && session.desiredMode
+                #else
+                return false
+                #endif
             }
         }
     }
@@ -151,9 +157,13 @@ final class GameEngine: @unchecked Sendable {
         let config = context.config
         let policy = config.inputGuardPolicy
         let snapshot = try settingsManager.captureKeyboardSettings(functionKeysEnabled: policy.functionKeysEnabled, shortcutIDs: policy.shortcutIDs, gestures: policy.gestures)
+        #if FEATURE_DISPLAYS
         let shouldDisablePower = config.display.autoDisableLowPowerMode && PowerManager.isLowPowerModeEnabled
             && PowerManager.isBatteryAboveThreshold(config.display.lowPowerModeBatteryThreshold)
         let power = shouldDisablePower ? PowerManager.captureLowPowerModeSettings() : nil
+        #else
+        let power: [String: Int]? = nil
+        #endif
         let state = GameModeState(isActive: true, activatedAt: Date(), appliedChanges: AppliedChanges(
             functionKeysChanged: snapshot.functionKeysChanged,
             previousFunctionKeysEnabled: snapshot.previousFunctionKeysEnabled,
@@ -167,16 +177,21 @@ final class GameEngine: @unchecked Sendable {
         ))
         try recovery.activate(state) {
             try settingsManager.applyKeyboardSettings(snapshot)
+            #if FEATURE_DISPLAYS
             if power != nil && !PowerManager.setLowPowerMode(enabled: false) {
                 throw RecoveryController.Failure.message("Low Power Mode could not be changed. Retry recovery to restore the saved settings.")
             }
+            #endif
             if config.mouse.isEnabled && config.mouse.isMouseBoostEnabled { try recovery.applyMouseProfile(speed: config.mouse.gamingSpeed) }
+            #if FEATURE_DISPLAYS
             let latest = read()
             if latest.session.desiredMode { try applyDisplays(context: latest) }
+            #endif
         }
     }
 
     private func applyDisplays(context: GameEngineClient.Context) throws {
+        #if FEATURE_DISPLAYS
         let failures: [String]
         if context.config.display.isRefreshRateLockEnabled && context.needsDisplay {
             failures = refreshRateLock.start(config: context.config.display).failedDisplays
@@ -184,5 +199,6 @@ final class GameEngine: @unchecked Sendable {
             failures = refreshRateLock.stop().failedDisplays
         }
         if !failures.isEmpty { throw RecoveryController.Failure.message(failures.joined(separator: "\n")) }
+        #endif
     }
 }

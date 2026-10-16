@@ -32,7 +32,11 @@ struct GeneralSettingsView: View {
             } header: {
                 Text("Overview")
             } footer: {
+                #if FEATURE_DISPLAYS
                 Text("Use the menu bar or your hotkeys to control Game Mode. Choose what changes in Input Guard, Mouse, and Displays, or select applications in Auto-Activation.")
+                #else
+                Text("Use the menu bar or your hotkeys to control Game Mode. Choose what changes in Input Guard and Mouse, or select applications in Auto-Activation.")
+                #endif
             }
 
             Section {
