@@ -6,23 +6,22 @@ Releases run manually through [GitHub Actions](https://github.com/nikita-moshyn/
 
 | Branch | Purpose | Releases |
 |--------|---------|----------|
-| `develop` | Reviewed changes and beta testing | Beta and release candidates |
-| `main` | Stable source and the trusted release workflow | Stable |
-| Contributor branches | Individual changes, merged into `develop` | None |
+| `main` | Reviewed source and the trusted release workflow | Beta and stable |
+| Feature branches | Individual changes, merged into `main` through a PR | None |
 
-The source commit must already be merged into `develop` for beta/RC or `main` for stable. An older tested commit remains releasable after the branch advances. Promote stable code with a `develop` to `main` PR, then merge `main` back into `develop`. Merge hotfixes back into `develop` too.
+The flow is feature branch → PR → `main`. Merging a PR doesn't publish an update. Both beta and stable releases use an exact source commit already merged into `main`; the release form selects the channel. An older tested commit remains releasable after `main` advances. To publish a stable version after beta testing, select the tested commit and the stable channel; no branch promotion is needed. The stable build uses its own feature flags and is tested again before publication.
 
 ## Publish a release
 
-1. Merge and test the source on the appropriate branch.
-2. Fetch the branches and copy the full source commit SHA:
+1. Merge and test the source on `main`.
+2. Fetch `main` and copy the full source commit SHA:
 
    ```bash
-   git fetch origin main develop
-   git rev-parse origin/develop
+   git fetch origin main
+   git rev-parse origin/main
    ```
 
-   Use `origin/main` for a stable release.
+   To release an older tested commit, copy its full SHA instead.
 
 3. Open **Actions > Release > Run workflow**. Select **main** as the workflow branch. The `source_commit` input selects the application code separately.
 4. Fill in the inputs below. Leave `publish` unchecked for a signed build you can download and inspect without publishing.
@@ -32,12 +31,12 @@ The source commit must already be merged into `develop` for beta/RC or `main` fo
 | Input | Value |
 |-------|-------|
 | `version` | Three numbers, such as `0.2.0`, without `v` or a channel suffix |
-| `channel` | `beta`, `rc`, or `stable` |
-| `number` | A positive beta/RC number, such as `3`; ignored for stable |
-| `source_commit` | The full 40-character lowercase commit SHA |
+| `channel` | `beta` or `stable` |
+| `number` | A positive beta number, such as `3`; ignored for stable |
+| `source_commit` | The full 40-character lowercase commit SHA already on `main` |
 | `publish` | Whether to publish the GitHub release, tag, and Sparkle update |
 
-These inputs produce tags such as `v0.2.0-beta.3`, `v0.2.0-rc.3`, or `v0.2.0`. Branch names and short SHAs aren't accepted as the source.
+These inputs produce tags such as `v0.2.0-beta.3` or `v0.2.0`. Branch names and short SHAs aren't accepted as the source. The workflow runs only from `main`; its form appears after the workflow is merged into the repository's default branch, `main`.
 
 ## Build and publication
 
@@ -48,9 +47,9 @@ Every new build runs tests, builds Release, signs with Developer ID, notarizes a
 
 Artifacts are retained for 90 days, subject to repository limits. Signing and notarization credentials are required even when `publish` is unchecked.
 
-With `publish` enabled, the workflow creates or verifies the source tag, creates or resumes a draft release, uploads and verifies its assets, and publishes it. Beta and RC releases are prereleases; stable releases are marked Latest.
+With `publish` enabled, the workflow creates or verifies the source tag, creates or resumes a draft release, uploads and verifies its assets, and publishes it. Beta releases are prereleases; stable releases are marked Latest.
 
-The feed job then downloads and verifies the published archive before updating only `appcast.xml` on `main`. The archive is available before Sparkle advertises it. Publication doesn't merge application code.
+The feed job then downloads and verifies the published archive before automatically committing only `appcast.xml` to `main`. The shared feed preserves both beta and stable entries, and the archive is available before Sparkle advertises it. This feed commit doesn't change the source tag or rebuild the app. No separate feed branch or manual appcast commit is needed.
 
 Record each published release in the [changelog](../CHANGELOG.md) with its publication date, user-visible changes, and release link. Keep beta and stable entries separate and include only changes that shipped.
 
@@ -97,7 +96,7 @@ All distributed builds use Release. Xcode runs Debug by default and includes bet
 
 For direct `xcodebuild` calls, set `GAMEMODE_CHANNEL` to `stable`, `beta`, or `rc`. Add beta feature conditions to `GAMEMODE_BETA_FEATURES` and guard both UI and effect entry points.
 
-CI runs on pull requests to `develop` and `main`. It clears `GAMEMODE_DEBUG_FEATURES` when running Debug tests so each channel is tested with its shipped feature set. The stable/beta matrix builds Release and runs Swift tests; the required aggregate check is named **build**.
+CI runs on pull requests to `main`. It clears `GAMEMODE_DEBUG_FEATURES` when running Debug tests so each channel is tested with its shipped feature set. The stable/beta matrix builds Release and runs Swift tests; the required aggregate check is named **build**.
 
 Displays includes refresh rate management and its Low Power Mode controls. Stable and RC Release builds exclude the view and activation paths, including changes requested by saved preferences. A remembered Displays destination falls back to General. Display preferences are retained, and recovery remains compiled in every channel.
 
@@ -107,7 +106,7 @@ Installed apps use this shared feed URL:
 
 `https://raw.githubusercontent.com/nikita-moshyn/gamemode-macos/main/appcast.xml`
 
-Keep that URL and the existing Sparkle signing key. GitHub's Latest and prerelease labels don't control Sparkle's selection; feed channels and comparable build versions do.
+Keep that URL and the existing Sparkle signing key. GitHub's Latest and prerelease labels don't control Sparkle's selection; feed channels and comparable build versions do. The tooling and updater also retain support for RC versions, although the release form offers beta and stable.
 
 | Tag | Display version | Bundle/feed build version | Sparkle channel |
 |-----|-----------------|---------------------------|-----------------|
@@ -127,7 +126,7 @@ Turning the preference off doesn't downgrade the installed app. A newer stable r
 The workflow expects the following setup:
 
 1. The release workflow and scripts are on `main`; the source being released includes the channel build configuration and bundle metadata.
-2. `main` and `develop` require the **build** check. Changes to the release workflow are protected. Runs and reruns are accepted only from the repository owner, with the workflow on `main`.
+2. `main` requires the **build** check. Changes to the release workflow are protected. Runs and reruns are accepted only from the repository owner, with the workflow on `main`.
 3. A GitHub environment named `release` allows the `main` workflow branch. Configure the owner as the required reviewer and allow self-review for solo releases. Availability depends on the account and repository visibility.
 4. The environment contains the secrets below. Keep signing secrets at environment scope and remove any repository-level duplicates.
 5. `RELEASE_PUBLISH_TOKEN` can create tags and releases and push feed commits to `main` under the active rulesets. The default workflow token has read-only repository permissions.

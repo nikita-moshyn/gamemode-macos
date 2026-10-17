@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import plistlib
 import subprocess
+import sys
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
@@ -38,7 +39,7 @@ class ReleaseTests(unittest.TestCase):
                 self.assertEqual(meta["channel"], channel)
                 self.assertEqual(meta["build_version"], build)
                 self.assertEqual(meta["prerelease"], str(channel != "stable").lower())
-                self.assertEqual(meta["source_branch"], "main" if channel == "stable" else "develop")
+                self.assertEqual(meta["source_branch"], "main")
 
     def test_manual_inputs_generate_existing_sparkle_versions(self):
         self.assertEqual(manual_tag("0.2.0", "beta", "3"), "v0.2.0-beta.3")
@@ -140,10 +141,9 @@ class FeedPublicationTests(unittest.TestCase):
         self.git("add", ".")
         self.git("commit", "-m", "Initial stable source")
         self.git("push", "-u", "origin", "main")
-        self.git("checkout", "-b", "develop")
         (self.repo / "app.txt").write_text("next release code")
         self.git("commit", "-am", "Next release")
-        self.git("push", "-u", "origin", "develop")
+        self.git("push", "origin", "main")
 
     def git(self, *arguments):
         result = subprocess.run(["git", *arguments], cwd=self.repo, check=True, capture_output=True, text=True)
@@ -159,26 +159,34 @@ class FeedPublicationTests(unittest.TestCase):
     def items(self):
         return ET.fromstring(self.git("show", "origin/main:appcast.xml")).find("channel").findall("item")
 
-    def test_beta_rc_and_stable_publish_only_feed_after_explicit_source_promotion(self):
-        self.publish("v0.1.2-beta.1")
-        self.assertEqual(self.git("show", "origin/main:app.txt"), "stable code")
-        self.publish("v0.1.2-rc.1")
-        self.assertEqual(self.git("show", "origin/main:app.txt"), "stable code")
-        # Simulate merging the develop -> main PR before creating a stable tag.
-        self.git("checkout", "main")
-        self.git("merge", "--ff-only", "origin/main")
-        self.git("merge", "--no-ff", "develop", "-m", "Promote tested release")
-        self.git("push", "origin", "main")
-        promoted = self.git("rev-parse", "origin/main").strip()
-        self.publish("v0.1.2")
-        self.assertEqual(self.git("show", "origin/main:app.txt"), "next release code")
-        self.assertEqual(self.git("diff", "--name-only", promoted, "origin/main"), "appcast.xml\n")
-        # develop still has its original empty appcast, so this also verifies
-        # that publication reads main's feed instead of the tagged branch's.
-        self.git("checkout", "develop")
-        self.publish("v0.1.3-beta.1")
-        self.assertEqual([item.findtext(sparkle("version")) for item in self.items()], ["0.1.3b1", "0.1.2", "0.1.2rc1", "0.1.2b1"])
+    def test_beta_rc_and_stable_publish_same_main_source_without_develop(self):
+        source = self.git("rev-parse", "HEAD").strip()
+        self.git("checkout", "--detach", source)
+        for tag in ["v0.1.2-beta.1", "v0.1.2-rc.1", "v0.1.2"]:
+            with self.subTest(tag=tag):
+                self.publish(tag)
+                self.assertEqual(self.git("rev-parse", f"{tag}^{{commit}}").strip(), source)
+                self.assertEqual(self.git("show", "origin/main:app.txt"), "next release code")
+                self.assertEqual(self.git("diff", "--name-only", source, "origin/main"), "appcast.xml\n")
+        # The pinned source still has an empty feed. Every publication must read
+        # the latest feed from main to preserve the other release channels.
+        self.assertEqual(ET.parse(self.repo / "appcast.xml").findall("channel/item"), [])
+        self.assertEqual([item.findtext(sparkle("version")) for item in self.items()], ["0.1.2", "0.1.2rc1", "0.1.2b1"])
         self.assertEqual(self.git("status", "--porcelain"), "")
+
+    def test_feed_publication_preserves_main_changes_after_the_source_snapshot(self):
+        source = self.git("rev-parse", "HEAD").strip()
+        (self.repo / "app.txt").write_text("newer reviewed code")
+        self.git("commit", "-am", "Main advances")
+        self.git("push", "origin", "main")
+        latest = self.git("rev-parse", "HEAD").strip()
+        self.git("checkout", "--detach", source)
+        self.publish("v0.1.2-beta.1")
+        self.publish("v0.1.2")
+        self.assertEqual(self.git("show", "origin/main:app.txt"), "newer reviewed code")
+        self.assertEqual(self.git("diff", "--name-only", latest, "origin/main"), "appcast.xml\n")
+        self.assertEqual(self.git("rev-parse", "v0.1.2").strip(), source)
+        self.assertEqual([item.findtext(sparkle("version")) for item in self.items()], ["0.1.2", "0.1.2b1"])
 
     def test_rejected_push_is_retried_and_temporary_worktree_is_removed(self):
         hook = self.remote / "hooks/pre-receive"
@@ -190,31 +198,55 @@ class FeedPublicationTests(unittest.TestCase):
 
     def test_manual_source_is_validated_before_a_tag_exists(self):
         commit = self.git("rev-parse", "HEAD").strip()
-        self.assertEqual(validate_source(self.repo, "v0.1.2-beta.1", commit), commit)
-        with self.assertRaisesRegex(ValueError, "already merged into origin/main"):
-            validate_source(self.repo, "v0.1.2", commit)
+        for tag in ["v0.1.2-beta.1", "v0.1.2-rc.1", "v0.1.2"]:
+            with self.subTest(tag=tag):
+                self.assertEqual(validate_source(self.repo, tag, commit), commit)
         with self.assertRaisesRegex(ValueError, "full.*commit SHA"):
-            validate_source(self.repo, "v0.1.2-beta.1", "develop")
+            validate_source(self.repo, "v0.1.2-beta.1", "main")
 
-    def test_stable_tag_on_unpromoted_develop_code_is_rejected(self):
-        self.git("tag", "v0.1.2")
-        with self.assertRaisesRegex(ValueError, "already merged into origin/main"):
-            validate_source(self.repo, "v0.1.2")
+    def test_release_form_inputs_prepare_beta_and_stable_from_the_same_main_commit(self):
+        commit = self.git("rev-parse", "HEAD").strip()
+        for channel, number, tag, build in [
+            ("beta", "3", "v0.2.0-beta.3", "0.2.0b3"),
+            ("stable", "ignored", "v0.2.0", "0.2.0"),
+        ]:
+            with self.subTest(channel=channel):
+                output = self.repo / f"{channel}-output"
+                result = subprocess.run([
+                    sys.executable, str(Path(__file__).with_name("release.py")), "prepare",
+                    "--version", "0.2.0", "--channel", channel, "--number", number,
+                    "--commit", commit, "--github-output", str(output),
+                ], cwd=self.repo, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                values = dict(line.split("=", 1) for line in output.read_text().splitlines())
+                self.assertEqual(values["tag"], tag)
+                self.assertEqual(values["build_version"], build)
+                self.assertEqual(values["channel"], channel)
+                self.assertEqual(values["source_branch"], "main")
+                self.assertEqual(values["commit"], commit)
 
-    def test_beta_tag_on_unmerged_feature_code_is_rejected(self):
+    def test_every_channel_rejects_unmerged_feature_sources_and_tags(self):
         self.git("checkout", "-b", "feature/unmerged")
         (self.repo / "app.txt").write_text("unmerged feature")
         self.git("commit", "-am", "Unmerged feature")
-        self.git("tag", "v0.1.2-beta.1")
-        with self.assertRaisesRegex(ValueError, "already merged into origin/develop"):
-            validate_source(self.repo, "v0.1.2-beta.1")
+        self.git("push", "origin", "feature/unmerged")
+        commit = self.git("rev-parse", "HEAD").strip()
+        for tag in ["v0.1.2-beta.1", "v0.1.2-rc.1", "v0.1.2"]:
+            with self.subTest(tag=tag):
+                with self.assertRaisesRegex(ValueError, "already merged into origin/main"):
+                    validate_source(self.repo, tag, commit)
+                self.git("tag", tag)
+                with self.assertRaisesRegex(ValueError, "already merged into origin/main"):
+                    validate_source(self.repo, tag)
 
     def test_annotated_tag_is_valid_when_branch_advances_after_tagging(self):
+        commit = self.git("rev-parse", "HEAD").strip()
         self.git("tag", "-a", "v0.1.2-beta.1", "-m", "Beta snapshot")
         (self.repo / "app.txt").write_text("subsequent development")
-        self.git("commit", "-am", "Develop continues")
-        self.git("push", "origin", "develop")
-        validate_source(self.repo, "v0.1.2-beta.1")
+        self.git("commit", "-am", "Main continues")
+        self.git("push", "origin", "main")
+        self.assertEqual(validate_source(self.repo, "v0.1.2-beta.1"), commit)
+        self.assertEqual(validate_source(self.repo, "v0.1.2", commit), commit)
 
 
 class SignatureVerificationTests(unittest.TestCase):

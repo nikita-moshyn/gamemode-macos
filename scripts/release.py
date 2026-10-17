@@ -43,7 +43,7 @@ def release_metadata(tag):
         "channel": channel,
         "prerelease": str(channel != "stable").lower(),
         "display_name": f"GameMode {version}{label}",
-        "source_branch": "main" if channel == "stable" else "develop",
+        "source_branch": "main",
     }
 
 

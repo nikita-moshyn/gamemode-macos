@@ -9,7 +9,7 @@ For vulnerabilities or security concerns, follow the [security policy](SECURITY.
 1. Search existing [issues](https://github.com/nikita-moshyn/gamemode-macos/issues) and [pull requests](https://github.com/nikita-moshyn/gamemode-macos/pulls) for the same problem or idea.
 2. If there's already an issue, add what you've found there. Otherwise, open one with a clear description.
 3. If nobody is assigned, leave a comment saying you'd like to work on it. For a larger change, discuss the approach in the issue first.
-4. Fork the repository and create your branch from `develop`. Open your PR against `develop` when it's ready.
+4. Fork the repository and create your feature branch from `main`. Open your PR against `main` when it's ready.
 
 ## Report a bug
 
@@ -21,10 +21,10 @@ Logs help when a setting fails to apply or restore. In **Settings > System > Dia
 
 You need macOS 14 or newer and the full Xcode 27 app with Swift 6.4 or newer. The pinned Composable Architecture packages require that toolchain. Select it in **Xcode > Settings > Locations > Command Line Tools**.
 
-To try the current development branch:
+To try the latest reviewed source, including changes that haven't been released yet:
 
 ```bash
-git clone --branch develop https://github.com/nikita-moshyn/gamemode-macos.git
+git clone --branch main https://github.com/nikita-moshyn/gamemode-macos.git
 cd gamemode-macos
 ./build.sh CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= -skipMacroValidation
 open build/GameMode.app
@@ -71,11 +71,11 @@ python3 -m unittest discover -s scripts -p 'test_*.py'
 python3 scripts/release.py validate-appcast appcast.xml
 ```
 
-CI runs on pull requests to `develop` and `main`. It builds Release and runs Swift tests for both stable and beta. Both must pass for the required **build** check. Documentation changes need a diff review and a check that links, commands, and setting names are correct.
+CI runs on pull requests to `main`. It builds Release and runs Swift tests for both stable and beta. Both must pass for the required **build** check. Merging a PR doesn't publish a release; the maintainer chooses beta or stable in the [release workflow](docs/RELEASING.md#publish-a-release). Documentation changes need a diff review and a check that links, commands, and setting names are correct.
 
 ## Open a pull request
 
-Push your branch to your fork, then open a pull request with `develop` as the base branch. Keep it focused on one problem, explain what changes for the user, link the issue, and say how you checked it. For behavior involving permissions, input devices, or displays, include the Mac and macOS version you tested and anything you couldn't verify.
+Push your branch to your fork, then open a pull request with `main` as the base branch. Keep it focused on one problem, explain what changes for the user, link the issue, and say how you checked it. For behavior involving permissions, input devices, or displays, include the Mac and macOS version you tested and anything you couldn't verify.
 
 ## Code conventions
 

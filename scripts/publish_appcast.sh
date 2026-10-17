@@ -11,9 +11,9 @@ set -euo pipefail
 RELEASE_SCRIPT="$(cd "$(dirname "$0")" && pwd)/release.py"
 FEED_CHECKOUT="$RUNNER_TEMP/appcast-checkout"
 
-# Publication never promotes source code. Beta/RC tags must already be on
-# develop, and stable tags must already be on main when the job starts.
-git fetch origin main develop
+# Every release channel uses source already merged into main. This job updates
+# only the shared appcast; the source commit and release tag stay unchanged.
+git fetch origin main
 python3 "$RELEASE_SCRIPT" validate-source --tag "$TAG"
 
 git config user.name "github-actions[bot]"
