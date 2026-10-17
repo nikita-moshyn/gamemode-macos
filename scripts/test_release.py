@@ -8,7 +8,7 @@ import tempfile
 import unittest
 import xml.etree.ElementTree as ET
 
-from release import FEED_URL, release_metadata, sparkle, update_appcast, validate_appcast, validate_source, verify_bundle
+from release import manual_tag, validate_commit, FEED_URL, release_metadata, sparkle, update_appcast, validate_appcast, validate_source, verify_bundle
 
 
 SIGNATURE = base64.b64encode(bytes(64)).decode()
@@ -40,6 +40,17 @@ class ReleaseTests(unittest.TestCase):
                 self.assertEqual(meta["prerelease"], str(channel != "stable").lower())
                 self.assertEqual(meta["source_branch"], "main" if channel == "stable" else "develop")
 
+    def test_manual_inputs_generate_existing_sparkle_versions(self):
+        self.assertEqual(manual_tag("0.2.0", "beta", "3"), "v0.2.0-beta.3")
+        self.assertEqual(manual_tag("0.2.0", "rc", "1"), "v0.2.0-rc.1")
+        self.assertEqual(manual_tag("0.2.0", "stable", ""), "v0.2.0")
+        for args in [("v0.2.0", "beta", "1"), ("0.2.0", "nightly", "1"), ("0.2.0", "beta", "0"), ("0.2.0", "rc", "1\\n")]:
+            with self.assertRaises(ValueError):
+                manual_tag(*args)
+        for source in ["main", "develop", "abc123", "a" * 40 + "\\n", "A" * 40]:
+            with self.assertRaises(ValueError):
+                validate_commit(source)
+
     def test_invalid_tags_fail_instead_of_becoming_stable(self):
         for tag in ["v1.2.3-beta", "v1.2.3-beta.0", "v1.2.3-beta.bad", "v1.2.3-alpha.1", "v01.2.3", "v1.2", "v1.2.3-rc.1-extra", "v1.2.3\n"]:
             with self.subTest(tag=tag), self.assertRaises(ValueError):
@@ -57,8 +68,17 @@ class ReleaseTests(unittest.TestCase):
 
     def test_rerun_does_not_duplicate_version(self):
         self.publish("v0.1.2-beta.1")
+        before = self.path.read_bytes()
         self.publish("v0.1.2-beta.1")
+        self.assertEqual(self.path.read_bytes(), before)
         self.assertEqual(len(ET.parse(self.path).getroot().find("channel").findall("item")), 1)
+
+    def test_feed_refuses_to_replace_published_bytes(self):
+        self.publish("v0.1.2-beta.1")
+        before = self.path.read_bytes()
+        with self.assertRaisesRegex(ValueError, "different archive"):
+            update_appcast(self.path, "v0.1.2-beta.1", SIGNATURE, 4567)
+        self.assertEqual(self.path.read_bytes(), before)
 
     def test_prerelease_without_channel_cannot_reach_stable_users(self):
         self.publish("v0.1.2-beta.1")
@@ -90,6 +110,7 @@ class ReleaseTests(unittest.TestCase):
             "CFBundleVersion": "0.1.2b1",
             "CFBundleShortVersionString": "0.1.2-beta.1",
             "SUFeedURL": FEED_URL,
+            "GameModeReleaseChannel": "beta",
             "SUPublicEDKey": "test-public-key",
         }
         with (contents / "Info.plist").open("wb") as destination:
@@ -166,6 +187,14 @@ class FeedPublicationTests(unittest.TestCase):
         self.publish("v0.1.2-beta.1")
         self.assertEqual(len(self.items()), 1)
         self.assertFalse((self.runner_temp / "appcast-checkout").exists())
+
+    def test_manual_source_is_validated_before_a_tag_exists(self):
+        commit = self.git("rev-parse", "HEAD").strip()
+        self.assertEqual(validate_source(self.repo, "v0.1.2-beta.1", commit), commit)
+        with self.assertRaisesRegex(ValueError, "already merged into origin/main"):
+            validate_source(self.repo, "v0.1.2", commit)
+        with self.assertRaisesRegex(ValueError, "full.*commit SHA"):
+            validate_source(self.repo, "v0.1.2-beta.1", "develop")
 
     def test_stable_tag_on_unpromoted_develop_code_is_rejected(self):
         self.git("tag", "v0.1.2")

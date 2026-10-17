@@ -10,7 +10,7 @@ import Foundation
 
 // MARK: - Top-Level Config
 
-struct GameModeConfig: Codable {
+struct GameModeConfig: Codable, Equatable, Sendable {
     var monitoredApps: [MonitoredApp]
     var shortcuts: [ShortcutEntry]
     var functionKeysInGamingMode: Bool
@@ -100,7 +100,7 @@ struct InputGuardPolicy: Equatable {
 
 // MARK: - Mouse
 
-struct MouseConfig: Codable {
+struct MouseConfig: Codable, Equatable, Sendable {
     /// Master switch — when false, mouse is never touched and menu toggle is hidden.
     var isEnabled: Bool = true
     var gamingSpeed: Double = 0.5
@@ -123,7 +123,7 @@ struct MouseConfig: Codable {
 
 // MARK: - System Safety
 
-struct SystemConfig: Codable {
+struct SystemConfig: Codable, Equatable, Sendable {
     /// Deactivate gaming mode before macOS shuts down or restarts.
     var restoreOnShutdown: Bool = true
     /// Auto-restore settings on launch if the app was killed while gaming mode was active.

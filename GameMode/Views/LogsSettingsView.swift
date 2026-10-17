@@ -2,36 +2,36 @@
 //  LogsSettingsView.swift
 //  GameMode
 //
-//  Created by Nikita Moshyn on 10/10/2026.
+//  Created by Nikita Moshyn on 12/10/2026.
 //  Copyright © 2026 Nikita Moshyn. All rights reserved.
 //
 
+import ComposableArchitecture
 import SwiftUI
 
 /// A section of System settings, so diagnostics share the parent form's scrolling.
 struct DiagnosticsSettingsSection: View {
-    @ObservedObject var configStore: ConfigStore
+    @Bindable var store: StoreOf<AppSettings>
 
     private var settingsLocked: Bool {
-        configStore.isTransitioning || configStore.recoveryRequired || configStore.configurationLoadError != nil
+        store.runtime.isTransitioning || store.runtime.recoveryRequired || store.configurationLoadError != nil
     }
 
     var body: some View {
         Section {
-            Toggle("Enable logging", isOn: $configStore.config.loggingEnabled)
+            Toggle("Enable logging", isOn: $store.config.loggingEnabled)
                 .disabled(settingsLocked)
 
-            Picker("Minimum log level", selection: $configStore.config.logLevel) {
+            Picker("Minimum log level", selection: $store.config.logLevel) {
                 ForEach(LogLevel.allCases, id: \.self) { level in
                     Text(level.title).tag(level)
                 }
             }
             .pickerStyle(.segmented)
-            .disabled(settingsLocked || !configStore.config.loggingEnabled)
+            .disabled(settingsLocked || !store.config.loggingEnabled)
 
             Button("Open Console.app") {
-                guard !configStore.isPreview else { return }
-                NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/Console.app"))
+                store.send(.command(.console))
             }
         } header: {
             Text("Diagnostics")

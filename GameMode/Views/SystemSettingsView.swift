@@ -6,29 +6,34 @@
 //  Copyright © 2026 Nikita Moshyn. All rights reserved.
 //
 
+import ComposableArchitecture
 import SwiftUI
 
 struct SystemSettingsView: View {
-    @ObservedObject var configStore: ConfigStore
-    var onForceRestore: (() -> Void)?
-    var onResetAllSavedData: (() -> Void)?
-    var onAcceptCurrentSettings: (() -> Void)?
-    @State private var confirmingReset = false
-    @State private var confirmingCurrentSettings = false
+    @Bindable var store: StoreOf<AppSettings>
 
     private var settingsLocked: Bool {
-        configStore.isTransitioning || configStore.recoveryRequired || configStore.configurationLoadError != nil
+        store.runtime.isTransitioning || store.runtime.recoveryRequired || store.configurationLoadError != nil
     }
 
     private var modeStatus: String {
-        if configStore.recoveryRequired { return "Recovery required" }
-        if configStore.isTransitioning { return "Updating settings…" }
-        return configStore.isGamingMode ? "Enabled" : "Disabled"
+        if store.runtime.recoveryRequired { return "Recovery required" }
+        if store.runtime.isTransitioning { return "Updating settings…" }
+        return store.runtime.isGamingMode ? "Enabled" : "Disabled"
     }
 
     var body: some View {
         Form {
-            if let error = configStore.configurationLoadError {
+            if let error = store.persistenceError {
+                Section("Changes Not Saved") {
+                    Label(error, systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.orange)
+                        .textSelection(.enabled)
+                    Text("Your last saved preferences are still in use. Try the change again.")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            if let error = store.configurationLoadError {
                 Section("Configuration Needs Attention") {
                     Label(error, systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.orange)
@@ -40,12 +45,12 @@ struct SystemSettingsView: View {
 
             Section("Engine") {
                 LabeledContent("Game Mode", value: modeStatus)
-                LabeledContent("Configuration", value: configStore.configurationLoadError == nil ? "Loaded" : "Needs attention")
+                LabeledContent("Configuration", value: store.configurationLoadError == nil ? "Loaded" : "Needs attention")
             }
 
             Section {
-                LabeledContent("Accessibility", value: configStore.isAccessibilityGranted ? "Granted" : "Not granted")
-                if !configStore.isAccessibilityGranted {
+                LabeledContent("Accessibility", value: store.runtime.isAccessibilityGranted ? "Granted" : "Not granted")
+                if !store.runtime.isAccessibilityGranted {
                     ViewThatFits(in: .horizontal) {
                         HStack {
                             permissionButton
@@ -64,37 +69,37 @@ struct SystemSettingsView: View {
             }
 
             Section {
-                if configStore.recoveryRequired || configStore.recoveryMessage != nil {
-                    Label(configStore.recoveryMessage ?? "Recovery must finish before Game Mode can start.", systemImage: configStore.recoveryRequired ? "exclamationmark.triangle" : "checkmark.circle")
-                        .foregroundStyle(configStore.recoveryRequired ? Color.orange : Color.secondary)
+                if store.runtime.recoveryRequired || store.runtime.recoveryMessage != nil {
+                    Label(store.runtime.recoveryMessage ?? "Recovery must finish before Game Mode can start.", systemImage: store.runtime.recoveryRequired ? "exclamationmark.triangle" : "checkmark.circle")
+                        .foregroundStyle(store.runtime.recoveryRequired ? Color.orange : Color.secondary)
                         .textSelection(.enabled)
                 } else {
                     LabeledContent("Status", value: "No recovery required")
                 }
-                if configStore.recoveryRequired {
-                    Button("Retry Recovery") { onForceRestore?() }
-                        .disabled(configStore.isTransitioning)
+                if store.runtime.recoveryRequired {
+                    Button("Retry Recovery") { store.send(.retryRecovery) }
+                        .disabled(store.runtime.isTransitioning)
                     Button("Use Current Settings as Normal…", role: .destructive) {
-                        confirmingCurrentSettings = true
+                        store.send(.confirmationRequested(.acceptCurrentSettings))
                     }
-                    .disabled(configStore.isTransitioning)
+                    .disabled(store.runtime.isTransitioning)
                 } else {
-                    Button("Restore Saved Settings") { onForceRestore?() }
-                        .disabled(configStore.isTransitioning)
+                    Button("Restore Saved Settings") { store.send(.retryRecovery) }
+                        .disabled(store.runtime.isTransitioning)
                 }
 
                 Group {
-                    Toggle("Restore before shutdown or restart", isOn: $configStore.config.system.restoreOnShutdown)
-                    Toggle("Recover interrupted sessions on launch", isOn: $configStore.config.system.restoreOnLaunch)
+                    Toggle("Restore before shutdown or restart", isOn: $store.config.system.restoreOnShutdown)
+                    Toggle("Recover interrupted sessions on launch", isOn: $store.config.system.restoreOnLaunch)
                 }
                 .disabled(settingsLocked)
 
-                LabeledContent("Recovery journal") {
+                DisclosureGroup("Recovery Details") {
+                    Text("Recovery journal")
                     Text("~/Library/Application Support/GameMode/manifest.json")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                        .truncationMode(.middle)
+                        .fixedSize(horizontal: false, vertical: true)
                         .textSelection(.enabled)
                 }
             } header: {
@@ -103,22 +108,11 @@ struct SystemSettingsView: View {
                 Text("GameMode saves your normal settings before applying changes. After an interrupted session, recovery uses those saved values before a new session can begin.")
             }
 
-            DiagnosticsSettingsSection(configStore: configStore)
+            DiagnosticsSettingsSection(store: store)
 
             Section {
-                DisclosureGroup("Display Compatibility") {
-                    Group {
-                        Toggle("Prefer fixed modes on built-in displays", isOn: $configStore.config.display.preferExactModeSwitching)
-                        Toggle("Use ProMotion fallback when needed", isOn: $configStore.config.display.allowOverlayFallback)
-                    }
-                    .disabled(settingsLocked || !configStore.config.display.isRefreshRateLockEnabled)
-                    Text("The fallback keeps a built-in ProMotion display active when a fixed refresh rate is unavailable. Its effectiveness depends on macOS and the display.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Button("Reset Saved Configuration…", role: .destructive) { confirmingReset = true }
-                    .disabled(configStore.isTransitioning || configStore.recoveryRequired || configStore.isGamingMode)
+                Button("Reset Saved Configuration…", role: .destructive) { store.send(.confirmationRequested(.resetConfiguration)) }
+                    .disabled(store.runtime.isTransitioning || store.runtime.recoveryRequired || store.runtime.isGamingMode)
             } header: {
                 Text("Advanced")
             } footer: {
@@ -126,33 +120,41 @@ struct SystemSettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .alert("Use current settings as normal?", isPresented: $confirmingCurrentSettings) {
+        .alert("Use current settings as normal?", isPresented: confirmationBinding(.acceptCurrentSettings)) {
             Button("Cancel", role: .cancel) {}
-            Button("Use Current Settings", role: .destructive) { onAcceptCurrentSettings?() }
+            Button("Use Current Settings", role: .destructive) {
+                guard store.canAcceptCurrentSettings else { return }
+                store.send(.confirmationDismissed(.acceptCurrentSettings))
+                store.send(.acceptCurrentSettings)
+            }
         } message: {
             Text("First set your preferred normal keyboard, mouse, and system settings in macOS. This accepts the current settings as your normal configuration and ends recovery. The previous saved values will no longer be used for automatic recovery.")
         }
-        .alert("Reset saved configuration?", isPresented: $confirmingReset) {
+        .alert("Reset saved configuration?", isPresented: confirmationBinding(.resetConfiguration)) {
             Button("Cancel", role: .cancel) {}
-            Button("Reset Configuration", role: .destructive) { onResetAllSavedData?() }
+            Button("Reset Configuration", role: .destructive) {
+                guard store.canResetConfiguration else { return }
+                store.send(.confirmationDismissed(.resetConfiguration))
+                store.send(.resetConfiguration)
+            }
         } message: {
             Text("This resets monitored applications, shortcuts, presets, and other GameMode preferences. Your current macOS settings will not be changed.")
         }
     }
 
+    private func confirmationBinding(_ confirmation: AppSettings.Confirmation) -> Binding<Bool> {
+        Binding(get: { store.confirmation == confirmation }, set: { if !$0 { store.send(.confirmationDismissed(confirmation)) } })
+    }
+
     private var permissionButton: some View {
         Button("Request Permission") {
-            guard !configStore.isPreview else { return }
-            HotkeyManager.requestAccessibilityPermission()
+            store.send(.command(.requestAccessibility))
         }
     }
 
     private var accessibilitySettingsButton: some View {
         Button("Open System Settings") {
-            guard !configStore.isPreview else { return }
-            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-                NSWorkspace.shared.open(url)
-            }
+            store.send(.command(.accessibilitySettings))
         }
     }
 }

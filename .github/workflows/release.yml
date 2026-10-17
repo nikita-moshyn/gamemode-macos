@@ -1,288 +1,212 @@
 name: Release
+run-name: '${{ inputs.channel }} ${{ inputs.version }} — publish=${{ inputs.publish }}'
 
 on:
-  push:
-    tags:
-      # Stable: v0.1.0 or 0.1.0
-      - 'v[0-9]+.[0-9]+.[0-9]+'
-      - '[0-9]+.[0-9]+.[0-9]+'
-      # Beta: v0.2.0-beta.1
-      - 'v[0-9]+.[0-9]+.[0-9]+-beta.*'
-      - '[0-9]+.[0-9]+.[0-9]+-beta.*'
-      # RC: v0.2.0-rc.1
-      - 'v[0-9]+.[0-9]+.[0-9]+-rc.*'
-      - '[0-9]+.[0-9]+.[0-9]+-rc.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Base version (X.Y.Z, for example 0.2.0)'
+        required: true
+        type: string
+      channel:
+        description: Release channel
+        required: true
+        type: choice
+        options: [beta, rc, stable]
+        default: beta
+      number:
+        description: 'Beta/RC number (ignored for stable)'
+        type: string
+        default: '1'
+      source_commit:
+        description: 'Full 40-character source commit SHA (develop for beta/RC, main for stable)'
+        required: true
+        type: string
+      publish:
+        description: 'Publish GitHub release, tag, and Sparkle update'
+        type: boolean
+        default: false
 
 permissions:
-  contents: write
+  contents: read
+  actions: read
+
+# Serialize tag/release/feed changes, including retries, without cancelling a publisher.
+concurrency:
+  group: gamemode-release
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
-  build-and-release:
-    runs-on: macos-15
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
+      build_version: ${{ steps.meta.outputs.build_version }}
+      channel: ${{ steps.meta.outputs.channel }}
+      commit: ${{ steps.meta.outputs.commit }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-          # main's rulesets require an authorized account/app for feed pushes.
-          token: ${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}
-
-      - name: Require authorized feed publisher
+      - name: Require owner and trusted workflow branch
         env:
-          RELEASE_PUBLISH_TOKEN: ${{ secrets.RELEASE_PUBLISH_TOKEN }}
+          ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          OWNER: ${{ github.repository_owner }}
+          WORKFLOW_REF: ${{ github.ref }}
         run: |
-          if [ -z "$RELEASE_PUBLISH_TOKEN" ]; then
-            echo "::error::Add RELEASE_PUBLISH_TOKEN as a repository Actions secret. Its account/app must be allowed to push to main under every active ruleset."
+          if [[ "$ACTOR" != "$OWNER" || "$TRIGGERING_ACTOR" != "$OWNER" || "$WORKFLOW_REF" != refs/heads/main ]]; then
+            echo '::error::Run releases as the repository owner from the main workflow branch. Select source code with source_commit.'
             exit 1
           fi
-
-      # ── Parse tag into version, channel, and release flags ──
-      - name: Extract version and channel
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate immutable source and release inputs
         id: meta
         env:
-          TAG_REF: ${{ github.ref }}
+          VERSION: ${{ inputs.version }}
+          CHANNEL: ${{ inputs.channel }}
+          NUMBER: ${{ inputs.number }}
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
         run: |
-          python3 scripts/release.py metadata "${TAG_REF#refs/tags/}" --github-output "$GITHUB_OUTPUT"
+          python3 scripts/release.py prepare --version "$VERSION" --channel "$CHANNEL" \
+            --number "$NUMBER" --commit "$SOURCE_COMMIT" --github-output "$GITHUB_OUTPUT"
 
-      - name: Validate release source branch
+  build:
+    if: github.actor == github.repository_owner && github.triggering_actor == github.repository_owner && github.ref == 'refs/heads/main'
+    needs: prepare
+    runs-on: xcode-27
+    environment: release
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+      SOURCE_COMMIT: ${{ needs.prepare.outputs.commit }}
+    steps:
+      - name: Checkout release tools from the workflow commit
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          path: release-tools
+          persist-credentials: false
+      - name: Clear staging files left by an earlier runner job
+        run: |
+          rm -rf "$GITHUB_WORKSPACE/delivery"
+          mkdir -p "$GITHUB_WORKSPACE/delivery"
+      - name: Find an existing verified build
+        id: restore
         env:
-          TAG: ${{ steps.meta.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          git fetch origin main develop
-          python3 scripts/release.py validate-source --tag "$TAG"
-
-      - name: Validate release tooling
-        run: python3 -m unittest discover -s scripts -p 'test_*.py'
-
-      - name: Run Swift tests
-        run: |
-          xcodebuild \
-            -project GameMode.xcodeproj \
-            -scheme GameMode \
-            -configuration Debug \
-            -derivedDataPath build/DerivedData \
-            -destination 'platform=macOS' \
-            CODE_SIGN_IDENTITY="-" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO \
-            DEVELOPMENT_TEAM="" \
-            test
-
-      # ── Import Developer ID certificate into a temporary keychain ──
-      - name: Install signing certificate
+          python3 release-tools/scripts/release_delivery.py restore --directory delivery \
+            --tag "$TAG" --commit "$SOURCE_COMMIT" --run-id "$GITHUB_RUN_ID" --github-output "$GITHUB_OUTPUT"
+      - name: Restore this run's immutable artifact
+        if: steps.restore.outputs.artifact_exists == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: release-${{ github.run_id }}
+          path: delivery
+      - name: Checkout the exact source commit
+        if: steps.restore.outputs.restored != 'true'
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
+          path: source
+          persist-credentials: false
+      - name: Test, build, sign, and notarize
+        if: steps.restore.outputs.restored != 'true'
+        working-directory: source
         env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          BUILD_VERSION: ${{ needs.prepare.outputs.build_version }}
+          CHANNEL: ${{ needs.prepare.outputs.channel }}
           CERTIFICATE_P12: ${{ secrets.DEVELOPER_ID_CERT_P12 }}
           CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_CERT_PASSWORD }}
-        run: |
-          KEYCHAIN_PATH="$RUNNER_TEMP/signing.keychain-db"
-          KEYCHAIN_PASSWORD="$(openssl rand -hex 16)"
-
-          echo "$CERTIFICATE_P12" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
-
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-
-          security import "$RUNNER_TEMP/certificate.p12" \
-            -P "$CERTIFICATE_PASSWORD" \
-            -A -t cert -f pkcs12 \
-            -k "$KEYCHAIN_PATH"
-
-          security set-key-partition-list -S apple-tool:,apple:,codesign: \
-            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-
-          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
-
-          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
-
-          rm -f "$RUNNER_TEMP/certificate.p12"
-
-      # ── Build with Developer ID signing ──
-      - name: Build Release
-        env:
-          BUILD_VERSION: ${{ steps.meta.outputs.version }}
-          SPARKLE_BUILD_VERSION: ${{ steps.meta.outputs.build_version }}
-        run: |
-          xcodebuild \
-            -project GameMode.xcodeproj \
-            -scheme GameMode \
-            -configuration Release \
-            -derivedDataPath build/DerivedData \
-            MARKETING_VERSION="$BUILD_VERSION" \
-            CURRENT_PROJECT_VERSION="$SPARKLE_BUILD_VERSION" \
-            OTHER_CODE_SIGN_FLAGS="--timestamp" \
-            CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
-            build
-
-      # ── Sign all binaries with Developer ID + timestamp ──
-      - name: Package and sign app
-        id: package
-        env:
-          VERSION: ${{ steps.meta.outputs.version }}
-          TAG: ${{ steps.meta.outputs.tag }}
-        run: |
-          APP_PATH="build/DerivedData/Build/Products/Release/GameMode.app"
-
-          if [ ! -d "$APP_PATH" ]; then
-            echo "ERROR: GameMode.app not found in build output"
-            exit 1
-          fi
-
-          cp -R "$APP_PATH" build/GameMode.app
-          python3 scripts/release.py verify-bundle --app build/GameMode.app --tag "$TAG"
-
-          IDENTITY=$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
-          echo "Signing with: $IDENTITY"
-
-          # 1. Sign all standalone Mach-O binaries (like Autoupdate)
-          find build/GameMode.app/Contents/Frameworks -type f -perm +111 | while read -r bin; do
-            if file "$bin" | grep -q "Mach-O"; then
-              echo "  Signing binary: $bin"
-              codesign --force --sign "$IDENTITY" --timestamp --options runtime "$bin"
-            fi
-          done
-
-          # 2. Sign all nested .app and .xpc bundles
-          find build/GameMode.app/Contents/Frameworks -type d \( -name "*.app" -o -name "*.xpc" \) | while read -r nested; do
-            echo "  Signing bundle: $nested"
-            codesign --force --sign "$IDENTITY" --timestamp --options runtime "$nested"
-          done
-
-          # 3. Sign the Sparkle framework
-          echo "  Signing Sparkle.framework..."
-          codesign --force --sign "$IDENTITY" --timestamp --options runtime \
-            build/GameMode.app/Contents/Frameworks/Sparkle.framework
-
-          # 4. Sign the main app (must be last)
-          echo "  Signing GameMode.app..."
-          codesign --force --sign "$IDENTITY" --timestamp --options runtime \
-            --entitlements GameMode/GameMode.entitlements \
-            build/GameMode.app
-
-          echo "==> Verifying code signature..."
-          codesign --verify --deep --strict --verbose=2 build/GameMode.app
-          echo "==> Signature OK"
-
-      # ── Notarize with Apple ──
-      - name: Notarize app
-        env:
           APPLE_ID: ${{ secrets.NOTARIZATION_APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.NOTARIZATION_PASSWORD }}
           TEAM_ID: ${{ secrets.NOTARIZATION_TEAM_ID }}
-          VERSION: ${{ steps.meta.outputs.version }}
-        run: |
-          echo "==> Creating ZIP for notarization..."
-          cd build
-          ditto -c -k --keepParent GameMode.app "GameMode-${VERSION}.zip"
-          cd ..
-
-          echo "==> Submitting for notarization..."
-          SUBMIT_OUTPUT=$(xcrun notarytool submit "build/GameMode-${VERSION}.zip" \
-            --apple-id "$APPLE_ID" \
-            --password "$APPLE_PASSWORD" \
-            --team-id "$TEAM_ID" \
-            --wait \
-            --timeout 600 2>&1) || true
-
-          echo "$SUBMIT_OUTPUT"
-
-          SUBMISSION_ID=$(echo "$SUBMIT_OUTPUT" | grep "id:" | head -1 | awk '{print $2}')
-
-          if echo "$SUBMIT_OUTPUT" | grep -q "status: Invalid"; then
-            echo "==> Notarization FAILED. Fetching rejection log..."
-            xcrun notarytool log "$SUBMISSION_ID" \
-              --apple-id "$APPLE_ID" \
-              --password "$APPLE_PASSWORD" \
-              --team-id "$TEAM_ID" \
-              developer_log.json
-            cat developer_log.json
-            exit 1
-          fi
-
-          echo "==> Stapling notarization ticket..."
-          xcrun stapler staple build/GameMode.app
-
-          echo "==> Verifying notarization..."
-          spctl --assess --type execute --verbose build/GameMode.app
-
-          echo "==> Re-packaging with stapled ticket..."
-          rm -f "build/GameMode-${VERSION}.zip"
-          cd build
-          ditto -c -k --keepParent GameMode.app "GameMode-${VERSION}.zip"
-          cd ..
-
-          echo "==> Notarization complete"
-
-      # ── Sparkle EdDSA signature for auto-updates ──
-      - name: Sign with Sparkle EdDSA
-        id: sparkle_sign
-        env:
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
-          VERSION: ${{ steps.meta.outputs.version }}
         run: |
-          ZIP="build/GameMode-${VERSION}.zip"
-
-          SIGN_TOOL="build/DerivedData/SourcePackages/artifacts/sparkle/Sparkle/bin/sign_update"
-          if [ ! -f "$SIGN_TOOL" ]; then
-            echo "ERROR: sign_update not found at $SIGN_TOOL"
-            find build/DerivedData/SourcePackages -name "sign_update" -type f 2>/dev/null
-            exit 1
-          fi
-          chmod +x "$SIGN_TOOL"
-
-          SIGNATURE=$(echo "$SPARKLE_PRIVATE_KEY" | "$SIGN_TOOL" "$ZIP" -f -)
-
-          echo "Raw signature output: $SIGNATURE"
-
-          ED_SIG=$(echo "$SIGNATURE" | grep -o 'sparkle:edSignature="[^"]*"' | cut -d'"' -f2)
-          LENGTH=$(echo "$SIGNATURE" | grep -o 'length="[^"]*"' | cut -d'"' -f2)
-
-          if [ -z "$ED_SIG" ]; then
-            echo "ERROR: Failed to parse edSignature"
-            exit 1
-          fi
-
-          PUBLIC_KEY=$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' build/GameMode.app/Contents/Info.plist)
-          swift scripts/verify_update.swift "$ZIP" "$ED_SIG" "$PUBLIC_KEY" "$LENGTH"
-
-          echo "signature=$ED_SIG" >> "$GITHUB_OUTPUT"
-          echo "length=$LENGTH" >> "$GITHUB_OUTPUT"
-          echo "EdDSA signature: $ED_SIG (length: $LENGTH)"
-
-      # ── Create GitHub Release ──
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+          export RELEASE_TOOLS="$GITHUB_WORKSPACE/release-tools"
+          export RELEASE_DIRECTORY="$GITHUB_WORKSPACE/delivery"
+          bash "$RELEASE_TOOLS/scripts/build_release.sh"
+      - name: Verify release identity and archive
+        run: |
+          python3 release-tools/scripts/release_delivery.py verify --directory delivery --tag "$TAG" --commit "$SOURCE_COMMIT"
+      - name: Save the completed release for retries and downloads
+        if: steps.restore.outputs.artifact_exists != 'true'
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: ${{ steps.meta.outputs.tag }}
-          name: ${{ steps.meta.outputs.display_name }}
-          body: |
-            ## ${{ steps.meta.outputs.display_name }}
+          name: release-${{ github.run_id }}
+          path: |
+            delivery/*.zip
+            delivery/release.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+      - name: Summarize build
+        env:
+          PUBLISH: ${{ inputs.publish }}
+        run: |
+          {
+            echo "### $TAG"
+            echo "Source: $SOURCE_COMMIT"
+            echo "Artifact: release-$GITHUB_RUN_ID (archive and release.json)"
+            echo "Publish requested: $PUBLISH"
+            echo 'Reruns reuse the saved archive. A new run with the same published version verifies and reuses its release assets.'
+          } >> "$GITHUB_STEP_SUMMARY"
 
-            Download the zip, unzip, and drag GameMode.app to Applications.
+  publish:
+    if: inputs.publish && github.actor == github.repository_owner && github.triggering_actor == github.repository_owner && github.ref == 'refs/heads/main'
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    environment: release
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+      SOURCE_COMMIT: ${{ needs.prepare.outputs.commit }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-${{ github.run_id }}
+          path: delivery
+      - name: Publish or resume the exact release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PUBLISH_TOKEN }}
+        run: |
+          test -n "$GH_TOKEN" || { echo '::error::Configure RELEASE_PUBLISH_TOKEN in the release environment'; exit 1; }
+          python3 scripts/release_delivery.py publish --directory delivery --tag "$TAG" --commit "$SOURCE_COMMIT"
 
-            Signed with Developer ID and notarized by Apple.
-          files: |
-            build/GameMode-${{ steps.meta.outputs.version }}.zip
-          draft: false
-          prerelease: ${{ steps.meta.outputs.prerelease == 'true' }}
-          make_latest: ${{ steps.meta.outputs.prerelease == 'false' }}
-
-      # Publish only after the signed archive is available for download.
-      # Every release changes only the feed; code promotion happens through PRs.
+  feed:
+    if: github.actor == github.repository_owner && github.triggering_actor == github.repository_owner && github.ref == 'refs/heads/main'
+    needs: [prepare, publish]
+    runs-on: ubuntu-latest
+    environment: release
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+      SOURCE_COMMIT: ${{ needs.prepare.outputs.commit }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_PUBLISH_TOKEN }}
+      - name: Verify the published archive before advertising it
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PUBLISH_TOKEN }}
+        run: |
+          python3 scripts/release_delivery.py download --directory delivery \
+            --tag "$TAG" --commit "$SOURCE_COMMIT" --github-output "$GITHUB_OUTPUT"
       - name: Publish update feed
         env:
-          VERSION: ${{ steps.meta.outputs.version }}
-          TAG: ${{ steps.meta.outputs.tag }}
-          ED_SIG: ${{ steps.sparkle_sign.outputs.signature }}
-          LENGTH: ${{ steps.sparkle_sign.outputs.length }}
-        run: |
-          bash scripts/publish_appcast.sh
-
-      # ── Cleanup keychain ──
-      - name: Cleanup
-        if: always()
-        run: |
-          KEYCHAIN_PATH="$RUNNER_TEMP/signing.keychain-db"
-          if [ -f "$KEYCHAIN_PATH" ]; then
-            security delete-keychain "$KEYCHAIN_PATH"
-          fi
+          ED_SIG: ${{ steps.release.outputs.signature }}
+          LENGTH: ${{ steps.release.outputs.length }}
+        run: bash scripts/publish_appcast.sh

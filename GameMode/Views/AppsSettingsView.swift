@@ -2,28 +2,42 @@
 //  AppsSettingsView.swift
 //  GameMode
 //
-//  Created by Nikita Moshyn on 10/10/2026.
+//  Created by Nikita Moshyn on 12/10/2026.
 //  Copyright © 2026 Nikita Moshyn. All rights reserved.
 //
 
+import ComposableArchitecture
 import SwiftUI
 
 struct AppsSettingsView: View {
-    @ObservedObject var configStore: ConfigStore
-    @State private var showingAddSheet = false
-    @State private var isScanning = false
-    @State private var scanSummary: String?
+    @Bindable var store: StoreOf<AppSettings>
+    private var isScanning: Bool { store.scanID != nil }
 
     var body: some View {
         Form {
             Section {
-                Text("Game Mode activates when an enabled application launches and restores your settings after the last enabled application quits.")
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 12) {
+                    Button("Add App…") { store.send(.addAppButtonTapped) }
+                    Button(isScanning ? "Scanning…" : "Scan for Games") { store.send(.scanButtonTapped) }
+                        .disabled(isScanning)
+                    if isScanning {
+                        ProgressView()
+                            .controlSize(.small)
+                            .accessibilityLabel("Scanning for games")
+                    }
+                }
             } header: {
                 Text("Activation")
+            } footer: {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Game Mode activates when an enabled application launches and restores your settings after the last enabled application quits.")
+                    if let summary = store.scanSummary {
+                        Text(summary)
+                    }
+                }
             }
 
-            if configStore.config.monitoredApps.isEmpty {
+            if store.config.monitoredApps.isEmpty {
                 Section {
                     ContentUnavailableView("No Applications", systemImage: "app.dashed", description: Text("Add an application to enable Game Mode automatically when it launches."))
                 }
@@ -38,26 +52,24 @@ struct AppsSettingsView: View {
                 }
             }
 
-            Section {
-                HStack(spacing: 12) {
-                    Button("Add App") {
-                        showingAddSheet = true
-                    }
-
-                    Button(isScanning ? "Scanning…" : "Scan for Games") { scanForGames() }
-                        .disabled(isScanning)
-                    if isScanning {
-                        ProgressView().controlSize(.small)
+            if !store.config.monitoredApps.isEmpty {
+                Section {
+                    DisclosureGroup("Application Details") {
+                        ForEach(store.config.monitoredApps) { app in
+                            LabeledContent(app.name) {
+                                Text(app.bundleID)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .textSelection(.enabled)
+                            }
+                        }
                     }
                 }
-            } footer: {
-                Text(scanSummary ?? "Add an application or scan for installed games. Turn on the applications that should activate Game Mode.")
-                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
-        .sheet(isPresented: $showingAddSheet) {
-            AppPickerSheet(configStore: configStore, isPresented: $showingAddSheet)
+        .sheet(item: $store.scope(state: \.appPicker, action: \.appPicker)) { pickerStore in
+            AppPickerSheet(store: pickerStore)
         }
     }
 
@@ -65,26 +77,18 @@ struct AppsSettingsView: View {
         HStack {
             let binding = Binding<Bool>(
                 get: {
-                    configStore.config.monitoredApps
+                    store.config.monitoredApps
                         .first(where: { $0.id == app.id })?.isEnabled ?? false
                 },
-                set: { _ in
-                    configStore.toggleApp(id: app.id)
-                }
+                set: { store.send(.appEnabledChanged(app.id, $0)) }
             )
-            Toggle(isOn: binding) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(app.name)
-                    Text(app.bundleID)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
+            Toggle(app.name, isOn: binding)
+                .help(app.bundleID)
 
             if app.source != .preset {
                 Spacer()
                 Button(role: .destructive) {
-                    configStore.removeApp(id: app.id)
+                    store.send(.removeApp(app.id))
                 } label: {
                     Image(systemName: "trash")
                         .foregroundStyle(.red)
@@ -96,32 +100,13 @@ struct AppsSettingsView: View {
         }
     }
 
-    private func scanForGames() {
-        isScanning = true
-        DispatchQueue.global(qos: .userInitiated).async {
-            let detected = AppDetector.scanForGames()
-            DispatchQueue.main.async {
-                guard configStore.configurationLoadError == nil, !configStore.recoveryRequired, !configStore.isTransitioning else {
-                    isScanning = false
-                    scanSummary = "Scan finished. Finish recovery before adding detected applications."
-                    return
-                }
-                let previousCount = configStore.config.monitoredApps.count
-                for app in detected { configStore.addApp(app) }
-                let added = configStore.config.monitoredApps.count - previousCount
-                scanSummary = added == 0 ? "Scan complete. No new games found." : "Scan complete. Added \(added) \(added == 1 ? "application" : "applications")."
-                isScanning = false
-            }
-        }
-    }
-
     private struct AppGroup {
         let title: String
         let apps: [MonitoredApp]
     }
 
     private var groupedSources: [AppGroup] {
-        let apps = configStore.config.monitoredApps
+        let apps = store.config.monitoredApps
         return [
             AppGroup(title: "Presets", apps: apps.filter { $0.source == .preset }),
             AppGroup(title: "Detected Games", apps: apps.filter { $0.source == .detected }),
