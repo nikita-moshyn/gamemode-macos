@@ -12,14 +12,14 @@ on:
         description: Release channel
         required: true
         type: choice
-        options: [beta, rc, stable]
+        options: [beta, stable]
         default: beta
       number:
-        description: 'Beta/RC number (ignored for stable)'
+        description: 'Beta number (ignored for stable)'
         type: string
         default: '1'
       source_commit:
-        description: 'Full 40-character source commit SHA (develop for beta/RC, main for stable)'
+        description: 'Full 40-character source commit SHA already merged into main'
         required: true
         type: string
       publish:
