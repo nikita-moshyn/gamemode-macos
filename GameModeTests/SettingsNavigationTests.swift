@@ -196,6 +196,45 @@ final class SettingsNavigationTests: XCTestCase {
         }
     }
 
+    func testRecoveryImmediatelyAfterPickerLoadDoesNotReceiveALateResult() async {
+        let apps = [ApplicationCandidate(bundleID: "test.game", name: "Game")]
+        var viewClient = SettingsViewClient.testValue
+        viewClient.runningApplications = { apps }
+        let store = Store(initialState: AppSettings.State()) { AppSettings() } withDependencies: {
+            $0.settingsViewClient = viewClient
+        }
+
+        let presentation = store.send(.addAppButtonTapped)
+        let load = store.send(.appPicker(.presented(.runningApplicationsRequested)))
+        XCTAssertEqual(store.appPicker?.runningApps, apps)
+        let recovery = store.send(.runtimeUpdated(.init(recoveryRequired: true)))
+
+        await recovery.finish()
+        await load.finish()
+        await presentation.finish()
+        XCTAssertNil(store.appPicker)
+        XCTAssertFalse(store.canEdit)
+        XCTAssertEqual(store.config, .defaults)
+    }
+
+    func testPickerRefreshReplacesRunningApplicationsWithoutChangingSelections() async {
+        let apps = LockIsolated([ApplicationCandidate(bundleID: "test.first", name: "First")])
+        var viewClient = SettingsViewClient.testValue
+        viewClient.runningApplications = { apps.value }
+        let picker = ApplicationPicker.State(manualBundleID: "unfinished", existingIDs: ["test.added"])
+        let store = store(state: .init(appPicker: picker), viewClient: viewClient)
+
+        await store.send(.appPicker(.presented(.runningApplicationsRequested))) {
+            $0.appPicker?.runningApps = apps.value
+        }
+        apps.setValue([.init(bundleID: "test.second", name: "Second")])
+        await store.send(.appPicker(.presented(.runningApplicationsRequested))) {
+            $0.appPicker?.runningApps = apps.value
+        }
+        await store.send(.appPicker(.dismiss)) { $0.appPicker = nil }
+        await store.finish()
+    }
+
     func testRecoveryCancelsBrowseWithoutAddingItsLateResult() async {
         let gate = AsyncStream<ApplicationCandidate>.makeStream()
         var viewClient = SettingsViewClient.testValue

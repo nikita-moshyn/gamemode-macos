@@ -40,7 +40,6 @@ struct ApplicationPicker {
     enum Action: BindableAction {
         case binding(BindingAction<State>)
         case runningApplicationsRequested
-        case runningApplicationsLoaded([ApplicationCandidate])
         case browseButtonTapped
         case browseFinished(Result<ApplicationCandidate?, Error>)
         case addButtonTapped(ApplicationCandidate)
@@ -63,9 +62,8 @@ struct ApplicationPicker {
             case .binding, .delegate:
                 return .none
             case .runningApplicationsRequested:
-                return .run { send in await send(.runningApplicationsLoaded(client.runningApplications())) }
-            case .runningApplicationsLoaded(let apps):
-                state.runningApps = apps
+                // Read the synchronous snapshot before the picker can be dismissed.
+                state.runningApps = MainActor.assumeIsolated { client.runningApplications() }
                 return .none
             case .browseButtonTapped:
                 guard !state.isBrowsing else { return .none }

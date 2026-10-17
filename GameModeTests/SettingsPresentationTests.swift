@@ -164,7 +164,7 @@ final class SettingsPresentationTests: XCTestCase {
     }
 
     @MainActor
-    func testRapidNavigationAndRecoveryDismissTheApplicationSheet() throws {
+    func testRapidNavigationAndRecoveryDismissTheApplicationSheet() async throws {
         let suite = "GameMode.NavigationPresentation.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -196,10 +196,11 @@ final class SettingsPresentationTests: XCTestCase {
         XCTAssertNil(defaults.data(forKey: "GameModeConfig_v2"))
         store.send(.sectionSelected(.applications))
         waitForUI("Applications is selected") { outline.selectedRow == SettingsSection.availableCases.firstIndex(of: .applications) }
-        store.send(.addAppButtonTapped)
+        let presentation = store.send(.addAppButtonTapped)
         waitForUI("Application picker is presented") { window.sheets.count == 1 }
-        root.send(.session(.recoveryStarted))
+        await root.send(.session(.recoveryStarted)).finish()
         waitForUI("Recovery dismisses the picker") { store.appPicker == nil && window.sheets.isEmpty }
+        await presentation.finish()
         XCTAssertFalse(store.canEdit)
         XCTAssertNil(defaults.data(forKey: "GameModeConfig_v2"))
     }
@@ -413,12 +414,20 @@ final class SettingsPresentationTests: XCTestCase {
     @MainActor
     func testRecorderCancellationRemovesMonitor() async {
         let monitor = FakeShortcutMonitor()
-        let stream = ShortcutRecordingClient.stream(addMonitor: monitor.install, removeMonitor: monitor.remove)
-        let task = Task { for await _ in stream {} }
-        await Task.yield()
+        let listening = expectation(description: "Recorder starts listening")
+        let removed = expectation(description: "Cancellation removes the event monitor")
+        let stream = ShortcutRecordingClient.stream(addMonitor: monitor.install, removeMonitor: { token in
+            monitor.remove(token)
+            removed.fulfill()
+        })
+        let task = Task {
+            listening.fulfill()
+            for await _ in stream {}
+        }
+        await fulfillment(of: [listening], timeout: 2)
         task.cancel()
         await task.value
-        for _ in 0..<20 where !monitor.activeTokens.isEmpty { await Task.yield() }
+        await fulfillment(of: [removed], timeout: 2)
         XCTAssertTrue(monitor.activeTokens.isEmpty)
         XCTAssertEqual(monitor.removeCount, 1)
     }
