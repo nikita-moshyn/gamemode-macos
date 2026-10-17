@@ -71,7 +71,7 @@ python3 -m unittest discover -s scripts -p 'test_*.py'
 python3 scripts/release.py validate-appcast appcast.xml
 ```
 
-CI builds Release and runs Swift tests for both stable and beta. Both must pass for the required **build** check. Documentation changes need a diff review and a check that links, commands, and setting names are correct.
+CI runs on pull requests to `develop` and `main`. It builds Release and runs Swift tests for both stable and beta. Both must pass for the required **build** check. Documentation changes need a diff review and a check that links, commands, and setting names are correct.
 
 ## Open a pull request
 

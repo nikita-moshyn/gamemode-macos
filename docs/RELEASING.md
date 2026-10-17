@@ -97,7 +97,7 @@ All distributed builds use Release. Xcode runs Debug by default and includes bet
 
 For direct `xcodebuild` calls, set `GAMEMODE_CHANNEL` to `stable`, `beta`, or `rc`. Add beta feature conditions to `GAMEMODE_BETA_FEATURES` and guard both UI and effect entry points.
 
-CI clears `GAMEMODE_DEBUG_FEATURES` when running Debug tests so each channel is tested with its shipped feature set. The stable/beta matrix builds Release and runs Swift tests; the required aggregate check is named **build**. Feed-only pushes skip checks.
+CI runs on pull requests to `develop` and `main`. It clears `GAMEMODE_DEBUG_FEATURES` when running Debug tests so each channel is tested with its shipped feature set. The stable/beta matrix builds Release and runs Swift tests; the required aggregate check is named **build**.
 
 Displays includes refresh rate management and its Low Power Mode controls. Stable and RC Release builds exclude the view and activation paths, including changes requested by saved preferences. A remembered Displays destination falls back to General. Display preferences are retained, and recovery remains compiled in every channel.
 
