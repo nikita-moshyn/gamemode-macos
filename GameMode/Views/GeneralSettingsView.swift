@@ -28,7 +28,7 @@ struct GeneralSettingsView: View {
         Form {
             Section {
                 LabeledContent("Game Mode", value: modeStatus)
-                LabeledContent("Mouse Preset", value: store.runtime.isMouseBoostApplied ? "Enabled" : "Disabled")
+                LabeledContent("Mouse Preset", value: store.runtime.isMouseBoostApplied ? "Applied" : "Not applied")
             } header: {
                 Text("Overview")
             } footer: {

@@ -59,6 +59,7 @@ jobs:
             -onlyUsePackageVersionsFromResolvedFile \
             -skipMacroValidation \
             GAMEMODE_CHANNEL="$GAMEMODE_CHANNEL" \
+            GAMEMODE_DEBUG_FEATURES= \
             CODE_SIGN_IDENTITY="-" \
             DEVELOPMENT_TEAM="" \
             test

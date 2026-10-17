@@ -18,17 +18,23 @@ struct ShortcutRecorderView: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Button(isRecording ? "Press shortcut…" : displayString) { store.send(.recordHotkey(hotkey.id)) }
-                .monospaced()
-                .frame(minWidth: 132)
-                .accessibilityLabel(hotkey.displayName)
-                .accessibilityValue(isRecording ? "Recording" : displayString)
-                .help(isRecording ? "Press a shortcut with a modifier key, or Escape to cancel." : "Record a keyboard shortcut")
+            Button { store.send(.recordHotkey(hotkey.id)) } label: {
+                Text(isRecording ? "Press shortcut…" : displayString)
+                    .monospaced()
+                    .frame(minWidth: 132)
+            }
+            .accessibilityLabel("Record \(hotkey.displayName)")
+            .accessibilityValue(isRecording ? "Recording" : displayString)
+            .help(isRecording ? "Press a shortcut with a modifier key, or Escape to cancel." : "Record a keyboard shortcut")
             if hotkey.keyCode != nil {
                 Button {
                     store.send(.stopRecording)
                     store.send(.updateHotkey(id: hotkey.id, keyCode: nil, modifiers: 0))
-                } label: { Image(systemName: "xmark.circle.fill") }
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
+                }
                 .buttonStyle(.borderless)
                 .foregroundStyle(.secondary)
                 .accessibilityLabel("Clear \(hotkey.displayName)")

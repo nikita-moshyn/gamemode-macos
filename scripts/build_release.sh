@@ -14,7 +14,7 @@ python3 -m unittest discover -s "$RELEASE_TOOLS/scripts" -p 'test_*.py'
 xcodebuild -project GameMode.xcodeproj -scheme GameMode -configuration Debug \
     -derivedDataPath build/DerivedData -destination 'platform=macOS' \
     -onlyUsePackageVersionsFromResolvedFile -skipMacroValidation \
-    GAMEMODE_CHANNEL="$CHANNEL" CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= test
+    GAMEMODE_CHANNEL="$CHANNEL" GAMEMODE_DEBUG_FEATURES= CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= test
 
 KEYCHAIN_PATH="$RUNNER_TEMP/gamemode-signing-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.keychain-db"
 CERTIFICATE_PATH="$RUNNER_TEMP/gamemode-certificate-${GITHUB_RUN_ID}.p12"

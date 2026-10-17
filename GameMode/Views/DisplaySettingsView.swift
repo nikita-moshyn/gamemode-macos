@@ -37,6 +37,7 @@ struct DisplaySettingsView: View {
             managedDisplaysSection
             refreshRateApplicationsSection
             lowPowerModeSection
+            displayCompatibilitySection
         }
         .formStyle(.grouped)
         .task { await store.send(.displayStatusRequested).finish() }
@@ -124,7 +125,7 @@ struct DisplaySettingsView: View {
         } header: {
             Text("Max Refresh Rate")
         } footer: {
-            Text("Use the highest supported refresh rate at your current resolution while Game Mode is enabled. Display compatibility options are in System → Advanced.")
+            Text("Use the highest supported refresh rate at your current resolution while Game Mode is enabled.")
                 .foregroundStyle(.secondary)
         }
     }
@@ -169,21 +170,16 @@ struct DisplaySettingsView: View {
                     .foregroundStyle(.secondary)
             }
             ForEach(refreshRateApps) { app in
-                Toggle(isOn: refreshRateBinding(for: app.id)) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(app.name)
-                        Text(app.bundleID)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
+                Toggle(app.name, isOn: refreshRateBinding(for: app.id))
+                    .help(app.bundleID)
+                    .disabled(!store.config.display.isRefreshRateLockEnabled)
             }
+            Button("Manage Applications…") { store.send(.sectionSelected(.applications)) }
         } header: {
             Text("Applications")
         } footer: {
-            Text("Use Max Refresh Rate while any selected application is running. Manage the application list in Auto-Activation.")
+            Text("Use Max Refresh Rate while any selected application is running.")
         }
-        .disabled(!store.config.display.isRefreshRateLockEnabled)
     }
 
     func refreshRateBinding(for appID: UUID) -> Binding<Bool> {
@@ -192,6 +188,23 @@ struct DisplaySettingsView: View {
         }, set: { enabled in
             store.send(.appRefreshRateLockChanged(appID, enabled))
         })
+    }
+
+    private var displayCompatibilitySection: some View {
+        Section {
+            DisclosureGroup("Display Compatibility") {
+                Group {
+                    Toggle("Prefer fixed modes on built-in displays", isOn: $store.config.display.preferExactModeSwitching)
+                    Toggle("Use ProMotion fallback when needed", isOn: $store.config.display.allowOverlayFallback)
+                }
+                .disabled(!store.canEdit || !store.config.display.isRefreshRateLockEnabled)
+                Text("The fallback keeps a built-in ProMotion display active when a fixed refresh rate is unavailable. Its effectiveness depends on macOS and the display.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+        } header: {
+            Text("Advanced")
+        }
     }
 
     // MARK: - Low Power Mode

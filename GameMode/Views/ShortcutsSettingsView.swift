@@ -16,17 +16,8 @@ struct ShortcutsSettingsView: View {
         Form {
             Section {
                 Toggle("Input Guard", isOn: $store.config.isInputGuardEnabled)
-                HStack(alignment: .top, spacing: 10) {
-                    Image(systemName: "hand.raised.fill")
-                        .foregroundStyle(.tint)
-                        .accessibilityHidden(true)
-                    Text("Choose which shortcuts and gestures to block, and whether to use standard function keys, while Game Mode is enabled.")
-                        .font(.callout)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(12)
-                .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+            } footer: {
+                Text("Block selected shortcuts and gestures during Game Mode. You can also use standard function keys.")
             }
 
             Group {
@@ -69,7 +60,7 @@ struct ShortcutsSettingsView: View {
             },
             set: { store.send(.shortcutSelectionChanged(entry.id, $0)) }
         )
-        return Toggle(entry.name, isOn: binding)
+        return Toggle("Block “\(entry.name)”", isOn: binding)
     }
 
     // MARK: - Gesture Row
@@ -82,7 +73,7 @@ struct ShortcutsSettingsView: View {
             },
             set: { store.send(.gestureSelectionChanged(entry.id, $0)) }
         )
-        return Toggle(entry.name, isOn: binding)
+        return Toggle("Block “\(entry.name)”", isOn: binding)
     }
 
     // MARK: - Grouping

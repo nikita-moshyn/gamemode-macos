@@ -94,12 +94,12 @@ struct SystemSettingsView: View {
                 }
                 .disabled(settingsLocked)
 
-                LabeledContent("Recovery journal") {
+                DisclosureGroup("Recovery Details") {
+                    Text("Recovery journal")
                     Text("~/Library/Application Support/GameMode/manifest.json")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                        .truncationMode(.middle)
+                        .fixedSize(horizontal: false, vertical: true)
                         .textSelection(.enabled)
                 }
             } header: {
@@ -111,17 +111,6 @@ struct SystemSettingsView: View {
             DiagnosticsSettingsSection(store: store)
 
             Section {
-                DisclosureGroup("Display Compatibility") {
-                    Group {
-                        Toggle("Prefer fixed modes on built-in displays", isOn: $store.config.display.preferExactModeSwitching)
-                        Toggle("Use ProMotion fallback when needed", isOn: $store.config.display.allowOverlayFallback)
-                    }
-                    .disabled(settingsLocked || !store.config.display.isRefreshRateLockEnabled)
-                    Text("The fallback keeps a built-in ProMotion display active when a fixed refresh rate is unavailable. Its effectiveness depends on macOS and the display.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
                 Button("Reset Saved Configuration…", role: .destructive) { store.send(.confirmationRequested(.resetConfiguration)) }
                     .disabled(store.runtime.isTransitioning || store.runtime.recoveryRequired || store.runtime.isGamingMode)
             } header: {

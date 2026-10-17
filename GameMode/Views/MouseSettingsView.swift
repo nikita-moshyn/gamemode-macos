@@ -21,9 +21,9 @@ struct MouseSettingsView: View {
     var body: some View {
         Form {
             Section {
-                Toggle("Mouse Preset", isOn: $store.config.mouse.isEnabled)
+                Toggle("Enable Mouse Preset", isOn: $store.config.mouse.isEnabled)
             } footer: {
-                Text("Use a different tracking speed while gaming, with the same mouse or a separate gaming mouse. This preset changes the system mouse speed; it is not tied to a particular device.")
+                Text("Use a different tracking speed during Game Mode. This preset applies to all mice connected to your Mac.")
             }
 
             Section {
@@ -43,16 +43,21 @@ struct MouseSettingsView: View {
 
                 Button("Apply Preset") { store.send(.applyMouse) }
                     .disabled(!canApplyProfile)
+                if store.config.mouse.isEnabled && !store.runtime.isGamingMode {
+                    Text("Turn on Game Mode to apply this preset.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
             } header: {
                 Text("Preset Settings")
             } footer: {
-                Text("Apply the configured speed while Game Mode is enabled. Your previous speed is saved before the preset is first applied and restored when you turn it off.")
+                Text("Your normal tracking speed is saved before applying the preset and restored when the preset or Game Mode turns off.")
             }
             .disabled(!store.config.mouse.isEnabled)
 
             Section {
                 Toggle("Apply automatically with Game Mode", isOn: $store.config.mouse.isMouseBoostEnabled)
-                LabeledContent("Preset status", value: store.runtime.isMouseBoostApplied ? "Enabled" : "Disabled")
+                LabeledContent("Currently applied", value: store.runtime.isMouseBoostApplied ? "Yes" : "No")
                 if let baseline = store.runtime.sessionMouseBaselineSpeed {
                     LabeledContent("Saved normal speed", value: String(format: "%.1f", baseline))
                 }

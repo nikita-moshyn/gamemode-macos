@@ -16,10 +16,25 @@ struct AppsSettingsView: View {
     var body: some View {
         Form {
             Section {
-                Text("Game Mode activates when an enabled application launches and restores your settings after the last enabled application quits.")
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 12) {
+                    Button("Add App…") { store.send(.addAppButtonTapped) }
+                    Button(isScanning ? "Scanning…" : "Scan for Games") { store.send(.scanButtonTapped) }
+                        .disabled(isScanning)
+                    if isScanning {
+                        ProgressView()
+                            .controlSize(.small)
+                            .accessibilityLabel("Scanning for games")
+                    }
+                }
             } header: {
                 Text("Activation")
+            } footer: {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Game Mode activates when an enabled application launches and restores your settings after the last enabled application quits.")
+                    if let summary = store.scanSummary {
+                        Text(summary)
+                    }
+                }
             }
 
             if store.config.monitoredApps.isEmpty {
@@ -37,21 +52,19 @@ struct AppsSettingsView: View {
                 }
             }
 
-            Section {
-                HStack(spacing: 12) {
-                    Button("Add App") {
-                        store.send(.addAppButtonTapped)
-                    }
-
-                    Button(isScanning ? "Scanning…" : "Scan for Games") { store.send(.scanButtonTapped) }
-                        .disabled(isScanning)
-                    if isScanning {
-                        ProgressView().controlSize(.small)
+            if !store.config.monitoredApps.isEmpty {
+                Section {
+                    DisclosureGroup("Application Details") {
+                        ForEach(store.config.monitoredApps) { app in
+                            LabeledContent(app.name) {
+                                Text(app.bundleID)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .textSelection(.enabled)
+                            }
+                        }
                     }
                 }
-            } footer: {
-                Text(store.scanSummary ?? "Add an application or scan for installed games. Turn on the applications that should activate Game Mode.")
-                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
@@ -69,14 +82,8 @@ struct AppsSettingsView: View {
                 },
                 set: { store.send(.appEnabledChanged(app.id, $0)) }
             )
-            Toggle(isOn: binding) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(app.name)
-                    Text(app.bundleID)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
+            Toggle(app.name, isOn: binding)
+                .help(app.bundleID)
 
             if app.source != .preset {
                 Spacer()
