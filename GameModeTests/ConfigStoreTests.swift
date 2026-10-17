@@ -6,21 +6,22 @@
 //  Copyright © 2026 Nikita Moshyn. All rights reserved.
 //
 
+import ConcurrencyExtras
 import XCTest
 @testable import GameMode
 
-final class ConfigStoreTests: XCTestCase {
+final class SettingsPersistenceTests: XCTestCase {
 
     private var suiteName: String!
     private var testDefaults: UserDefaults!
-    private var store: ConfigStore!
+    private var store: SettingsTestDriver!
 
     override func setUp() {
         super.setUp()
         suiteName = "com.moshyn.nikita.GameModeTests.\(UUID().uuidString)"
         testDefaults = UserDefaults(suiteName: suiteName)!
         testDefaults.removePersistentDomain(forName: suiteName)
-        store = ConfigStore(defaults: testDefaults)
+        store = SettingsTestDriver(defaults: testDefaults)
     }
 
     override func tearDown() {
@@ -52,25 +53,25 @@ final class ConfigStoreTests: XCTestCase {
 
     func test_saveAndLoad_roundTrip() {
         store.config.functionKeysInGamingMode = true
-        // didSet triggers save() automatically
+        // The compatibility setter sends an action and persists synchronously.
 
-        let store2 = ConfigStore(defaults: testDefaults)
+        let store2 = SettingsTestDriver(defaults: testDefaults)
         XCTAssertTrue(store2.config.functionKeysInGamingMode)
     }
 
     func test_betaOptInPersistsAndOptOutSurvivesRelaunch() {
         XCTAssertFalse(store.config.receivesBetaUpdates)
         store.config.receivesBetaUpdates = true
-        let optedIn = ConfigStore(defaults: testDefaults)
+        let optedIn = SettingsTestDriver(defaults: testDefaults)
         XCTAssertEqual(optedIn.config.allowedUpdateChannels, ["beta", "rc"])
         optedIn.config.receivesBetaUpdates = false
-        XCTAssertTrue(ConfigStore(defaults: testDefaults).config.allowedUpdateChannels.isEmpty)
+        XCTAssertTrue(SettingsTestDriver(defaults: testDefaults).config.allowedUpdateChannels.isEmpty)
     }
 
     func test_corruptConfigurationIsPreservedUntilExplicitReset() {
         let corrupt = Data("not-json".utf8)
         testDefaults.set(corrupt, forKey: "GameModeConfig_v2")
-        let damaged = ConfigStore(defaults: testDefaults)
+        let damaged = SettingsTestDriver(defaults: testDefaults)
         XCTAssertNotNil(damaged.configurationLoadError)
         XCTAssertFalse(damaged.isFirstLaunch)
         damaged.config.functionKeysInGamingMode = true
@@ -136,12 +137,12 @@ final class ConfigStoreTests: XCTestCase {
         let firstID = ShortcutEntry.defaults[0].id
         let secondID = ShortcutEntry.defaults[1].id
         let newEntry = ShortcutEntry(id: 999, name: "New Shortcut", category: "Test", disableInGamingMode: true)
-        var detected = [
+        let detected = LockIsolated([
             ShortcutEntry(id: firstID, name: "Changed name", category: "Test", disableInGamingMode: false),
             ShortcutEntry(id: secondID, name: "Other shortcut", category: "Test", disableInGamingMode: true),
             newEntry, newEntry
-        ]
-        let subject = ConfigStore(defaults: testDefaults, isPreview: true, shortcutDetector: { detected })
+        ])
+        let subject = SettingsTestDriver(defaults: testDefaults, isPreview: true, shortcutDetector: { detected.value })
         subject.config.isInputGuardEnabled = true
         subject.config.functionKeysInGamingMode = true
         subject.config.shortcuts[0].disableInGamingMode = true
@@ -158,30 +159,30 @@ final class ConfigStoreTests: XCTestCase {
 
         subject.toggleShortcut(id: newEntry.id)
         let savedSelection = subject.config.shortcuts.first { $0.id == newEntry.id }
-        detected = [] // A temporarily unavailable shortcut must not erase a choice.
+        detected.setValue([]) // A temporarily unavailable shortcut must not erase a choice.
         subject.refreshDetectedShortcuts()
-        detected = [newEntry]
+        detected.setValue([newEntry])
         subject.refreshDetectedShortcuts()
         XCTAssertEqual(subject.config.shortcuts.first { $0.id == newEntry.id }, savedSelection)
         XCTAssertEqual(subject.config.shortcuts.count, selections.count + 1)
-        XCTAssertEqual(ConfigStore(defaults: testDefaults).config.shortcuts, subject.config.shortcuts)
+        XCTAssertEqual(SettingsTestDriver(defaults: testDefaults).config.shortcuts, subject.config.shortcuts)
     }
 
     func test_automaticShortcutRefreshDoesNotChangeCorruptConfiguration() {
         let corrupt = Data("not-json".utf8)
         testDefaults.set(corrupt, forKey: "GameModeConfig_v2")
-        var detections = 0
-        let subject = ConfigStore(defaults: testDefaults, isPreview: true, shortcutDetector: {
-            detections += 1
+        let detections = LockIsolated(0)
+        let subject = SettingsTestDriver(defaults: testDefaults, isPreview: true, shortcutDetector: {
+            detections.withValue { $0 += 1 }
             return [ShortcutEntry(id: 999, name: "New", category: "Test", disableInGamingMode: false)]
         })
         subject.refreshDetectedShortcuts()
-        XCTAssertEqual(detections, 0)
+        XCTAssertEqual(detections.value, 0)
         XCTAssertEqual(testDefaults.data(forKey: "GameModeConfig_v2"), corrupt)
     }
 
     func test_previewDoesNotAutomaticallyReadRealSystemShortcuts() {
-        let subject = ConfigStore(defaults: testDefaults, isPreview: true)
+        let subject = SettingsTestDriver(defaults: testDefaults, isPreview: true)
         subject.refreshDetectedShortcuts()
         XCTAssertEqual(subject.config.shortcuts, ShortcutEntry.defaults)
         XCTAssertTrue(subject.isFirstLaunch, "An unchanged discovery must not save configuration")
@@ -256,7 +257,7 @@ final class ConfigStoreTests: XCTestCase {
         let selected = store.config.inputGuardPolicy
         store.config.isInputGuardEnabled = false
 
-        let reloaded = ConfigStore(defaults: testDefaults)
+        let reloaded = SettingsTestDriver(defaults: testDefaults)
         XCTAssertEqual(reloaded.config.inputGuardPolicy, .disabled)
         reloaded.config.isInputGuardEnabled = true
         XCTAssertEqual(reloaded.config.inputGuardPolicy, selected)

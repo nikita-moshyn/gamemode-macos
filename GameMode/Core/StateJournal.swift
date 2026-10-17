@@ -2,7 +2,7 @@
 //  StateJournal.swift
 //  GameMode
 //
-//  Created by Nikita Moshyn on 11/10/2026.
+//  Created by Nikita Moshyn on 13/10/2026.
 //  Copyright © 2026 Nikita Moshyn. All rights reserved.
 //
 
@@ -41,6 +41,7 @@ struct GameModeState: Codable, Equatable {
 struct AppliedChanges: Codable, Equatable {
     var functionKeysChanged: Bool
     var previousFunctionKeysEnabled: Bool?
+    var functionKeysWerePersisted: Bool
     var disabledShortcutIDs: [Int]
     var previousShortcutStates: [Int: Bool]?
     var shortcutsWerePersisted: Bool
@@ -63,6 +64,7 @@ struct AppliedChanges: Codable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         functionKeysChanged = try container.decode(Bool.self, forKey: .functionKeysChanged)
         previousFunctionKeysEnabled = try container.decodeIfPresent(Bool.self, forKey: .previousFunctionKeysEnabled)
+        functionKeysWerePersisted = try container.decodeIfPresent(Bool.self, forKey: .functionKeysWerePersisted) ?? true
         disabledShortcutIDs = try container.decode([Int].self, forKey: .disabledShortcutIDs)
         previousShortcutStates = try container.decodeIfPresent([Int: Bool].self, forKey: .previousShortcutStates)
         shortcutsWerePersisted = try container.decodeIfPresent(Bool.self, forKey: .shortcutsWerePersisted) ?? true
@@ -83,9 +85,10 @@ struct AppliedChanges: Codable, Equatable {
         displayRestores = try container.decodeIfPresent([DisplayRecoveryRecord].self, forKey: .displayRestores) ?? []
     }
 
-    init(functionKeysChanged: Bool, previousFunctionKeysEnabled: Bool? = nil, disabledShortcutIDs: [Int], previousShortcutStates: [Int: Bool]? = nil, mouseSpeedChanged: Bool, previousMouseSpeed: Double?, gesturesChanged: Bool = false, previousGestureValues: GesturePreferenceValues? = nil, lowPowerModeChanged: Bool = false, previousLowPowerModeEnabled: Bool? = nil, shortcutsWerePersisted: Bool = false, previousLowPowerModeSettings: [String: Int]? = nil, displayRestores: [DisplayRecoveryRecord] = []) {
+    init(functionKeysChanged: Bool, previousFunctionKeysEnabled: Bool? = nil, disabledShortcutIDs: [Int], previousShortcutStates: [Int: Bool]? = nil, mouseSpeedChanged: Bool, previousMouseSpeed: Double?, gesturesChanged: Bool = false, previousGestureValues: GesturePreferenceValues? = nil, lowPowerModeChanged: Bool = false, previousLowPowerModeEnabled: Bool? = nil, shortcutsWerePersisted: Bool = false, previousLowPowerModeSettings: [String: Int]? = nil, displayRestores: [DisplayRecoveryRecord] = [], functionKeysWerePersisted: Bool = false) {
         self.functionKeysChanged = functionKeysChanged
         self.previousFunctionKeysEnabled = previousFunctionKeysEnabled
+        self.functionKeysWerePersisted = functionKeysWerePersisted
         self.disabledShortcutIDs = disabledShortcutIDs
         self.previousShortcutStates = previousShortcutStates
         self.shortcutsWerePersisted = shortcutsWerePersisted
@@ -426,7 +429,7 @@ final class StateJournal {
     }
 
     private func protectBaselines(_ old: AppliedChanges, _ new: AppliedChanges) throws {
-        guard !(old.functionKeysChanged && new.functionKeysChanged && old.previousFunctionKeysEnabled != new.previousFunctionKeysEnabled),
+        guard !(old.functionKeysChanged && new.functionKeysChanged && (old.previousFunctionKeysEnabled != new.previousFunctionKeysEnabled || old.functionKeysWerePersisted != new.functionKeysWerePersisted)),
               !(old.mouseSpeedChanged && new.mouseSpeedChanged && old.previousMouseSpeed != new.previousMouseSpeed),
               !(old.gesturesChanged && new.gesturesChanged && old.previousGestureValues != new.previousGestureValues),
               !(old.lowPowerModeChanged && new.lowPowerModeChanged && (old.previousLowPowerModeEnabled != new.previousLowPowerModeEnabled || old.previousLowPowerModeSettings != new.previousLowPowerModeSettings)) else { throw JournalError.changedBaseline }
@@ -450,6 +453,7 @@ final class StateJournal {
         if pending.functionKeysChanged {
             evidence.functionKeysChanged = true
             evidence.previousFunctionKeysEnabled = pending.previousFunctionKeysEnabled
+            evidence.functionKeysWerePersisted = pending.functionKeysWerePersisted
         }
         if pending.mouseSpeedChanged {
             evidence.mouseSpeedChanged = true

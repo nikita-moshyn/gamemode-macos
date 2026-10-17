@@ -227,12 +227,14 @@ final class RefreshRateLock {
         resolvedDisplays().map(\.snapshot)
     }
 
+    #if FEATURE_DISPLAYS
     @discardableResult
     func start(config: DisplayConfig) -> DisplayRefreshActivationResult {
         performOnMain {
             startOnMain(config: config)
         }
     }
+    #endif
 
     @discardableResult
     func stop() -> DisplayRefreshRestoreResult {
@@ -289,6 +291,7 @@ final class RefreshRateLock {
 
     // MARK: - Start / Stop
 
+    #if FEATURE_DISPLAYS
     private func startOnMain(config: DisplayConfig) -> DisplayRefreshActivationResult {
         let restoreResult = stopCurrentSession(restoreModes: true)
         guard restoreResult.failedDisplays.isEmpty, displayModeRestores.isEmpty else {
@@ -372,6 +375,8 @@ final class RefreshRateLock {
         Log.info("Display refresh management apply result: \(result.summary)", category: "Display")
         return result
     }
+
+    #endif
 
     private func stopOnMain() -> DisplayRefreshRestoreResult {
         let result = stopCurrentSession(restoreModes: true)

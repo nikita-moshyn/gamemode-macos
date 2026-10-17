@@ -2,7 +2,7 @@
 //  SettingsManager.swift
 //  GameMode
 //
-//  Created by Nikita Moshyn on 11/10/2026.
+//  Created by Nikita Moshyn on 13/10/2026.
 //  Copyright © 2026 Nikita Moshyn. All rights reserved.
 //
 
@@ -10,6 +10,7 @@ import CoreGraphics
 import Darwin
 import Foundation
 import IOKit
+import IOKit.hidsystem
 
 // MARK: - IOKit HIDSystem bridging
 
@@ -26,8 +27,9 @@ private func _IOHIDGetAccelerationWithKey(_ handle: io_connect_t, _ key: CFStrin
 /// Handles macOS system settings changes.
 ///
 /// Architecture:
-///   - **Preferences** — uses CoreFoundation `CFPreferences` API directly
-///     (in-process, no subprocess spawning).
+///   - **Function keys** — temporary, verified HID mode changes; leaves the
+///     user's saved keyboard preferences alone.
+///   - **Gesture preferences** — uses CoreFoundation `CFPreferences` directly.
 ///   - **System shortcuts** — blocks configured symbolic hotkeys with a
 ///     process-owned event tap instead of rewriting system shortcut files.
 ///   - **Apply** — avoids `cfprefsd` signals and private `activateSettings`
@@ -37,12 +39,13 @@ private func _IOHIDGetAccelerationWithKey(_ handle: io_connect_t, _ key: CFStrin
 /// No admin privileges required.
 class SettingsManager {
 
-    private let functionKeysPreferenceKey = "com.apple.keyboard.fnState" as CFString
     private let legacyMouseScalingPreferenceKey = "com.apple.mouse.scaling" as CFString
+    private let functionKeys: FunctionKeyAccess
     private let shortcutBlocker: SystemShortcutBlocker
 
-    init(shortcutBlocker: SystemShortcutBlocker = SystemShortcutBlocker()) {
+    init(shortcutBlocker: SystemShortcutBlocker = SystemShortcutBlocker(), functionKeys: FunctionKeyAccess = .live) {
         self.shortcutBlocker = shortcutBlocker
+        self.functionKeys = functionKeys
     }
 
     /// Release process-owned effects after an explicit recovery reset, without writing preferences.
@@ -52,64 +55,71 @@ class SettingsManager {
 
     // MARK: - Function Keys
 
-    func readFunctionKeysEnabled() -> Bool {
-        let value = CFPreferencesCopyValue(
-            functionKeysPreferenceKey,
-            kCFPreferencesAnyApplication,
-            kCFPreferencesCurrentUser,
-            kCFPreferencesCurrentHost
-        ) as? NSNumber
-        return value?.boolValue ?? false
+    /// A saved fnState preference can disagree with the active keyboard mode.
+    /// A failed HID read must never become an invented "media keys" baseline.
+    func readFunctionKeysEnabled() -> Bool? {
+        functionKeys.read()
     }
 
-    /// Write "Use F1, F2, etc. keys as standard function keys" preference.
-    /// Does NOT apply — call `applyKeyboardChanges()` after.
+    /// Apply immediately without persisting a gaming preference across logins.
+    /// Success requires both a successful HID setter and matching live readback.
     @discardableResult
     func writeFunctionKeys(enabled: Bool) -> Bool {
-        let current = readFunctionKeysEnabled()
-        guard current != enabled else {
-            Log.debug("Fn keys already \(enabled ? "standard" : "media") mode", category: "FnKeys")
+        guard functionKeys.apply(enabled) else {
+            Log.error("IOKit failed to set function-key mode", category: "FnKeys")
             return false
         }
-
-        CFPreferencesSetValue(
-            functionKeysPreferenceKey,
-            enabled ? kCFBooleanTrue : kCFBooleanFalse,
-            kCFPreferencesAnyApplication,
-            kCFPreferencesCurrentUser,
-            kCFPreferencesCurrentHost
-        )
-        let synced = CFPreferencesSynchronize(
-            kCFPreferencesAnyApplication,
-            kCFPreferencesCurrentUser,
-            kCFPreferencesCurrentHost
-        )
-        if synced {
-            Log.info("Fn keys set to \(enabled ? "standard" : "media") mode", category: "FnKeys")
-        } else {
-            Log.warning("Fn key preference sync returned false", category: "FnKeys")
-        }
+        guard verifyFunctionKeysEnabled(enabled) else { return false }
+        Log.info("Fn keys set to \(enabled ? "standard" : "media") mode via IOKit", category: "FnKeys")
         return true
     }
 
-    /// Best-effort verification that the stored fn-state matches the requested value.
+    /// Verify the active HID mode, not a cached or stored preference.
     func verifyFunctionKeysEnabled(_ enabled: Bool, timeout: TimeInterval = 1.5) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         repeat {
-            let synchronized = CFPreferencesSynchronize(
-                kCFPreferencesAnyApplication,
-                kCFPreferencesCurrentUser,
-                kCFPreferencesCurrentHost
-            )
-            if synchronized && readFunctionKeysEnabled() == enabled {
+            if readFunctionKeysEnabled() == enabled {
                 Log.debug("[FnKeys:verify] Verified: standard=\(enabled)", category: "FnKeys")
                 return true
             }
+            guard Date() < deadline else { break }
             usleep(100_000)
         } while Date() < deadline
 
-        Log.warning("[FnKeys:verify] FAILED to verify: standard=\(enabled), actual=\(readFunctionKeysEnabled())", category: "FnKeys")
+        Log.warning("[FnKeys:verify] FAILED to verify: standard=\(enabled), actual=\(String(describing: readFunctionKeysEnabled()))", category: "FnKeys")
         return false
+    }
+
+    /// Injectable at the system boundary so regression tests never touch a keyboard.
+    struct FunctionKeyAccess {
+        var read: () -> Bool?
+        var apply: (Bool) -> Bool
+        var restoreLegacyPreference: (Bool) -> Bool
+
+        static var live: Self {
+            Self(read: {
+                SettingsManager.withHIDSystemConnection { connection in
+                    var value: Unmanaged<CFTypeRef>?
+                    let result = IOHIDCopyCFTypeParameter(connection, kIOHIDFKeyModeKey as CFString, &value)
+                    let parameter = value?.takeRetainedValue()
+                    guard result == kIOReturnSuccess, let number = parameter as? NSNumber,
+                          number.intValue == 0 || number.intValue == 1 else { return nil }
+                    return number.boolValue
+                }
+            }, apply: { enabled in
+                SettingsManager.withHIDSystemConnection { connection in
+                    IOHIDSetCFTypeParameter(connection, kIOHIDFKeyModeKey as CFString, NSNumber(value: enabled ? 1 : 0)) == kIOReturnSuccess
+                } ?? false
+            }, restoreLegacyPreference: { enabled in
+                // Releases through beta.3 persisted this host-specific preference.
+                // Only their pending recovery records authorize writing it back.
+                let key = "com.apple.keyboard.fnState" as CFString
+                CFPreferencesSetValue(key, enabled ? kCFBooleanTrue : kCFBooleanFalse,
+                                      kCFPreferencesAnyApplication, kCFPreferencesCurrentUser, kCFPreferencesCurrentHost)
+                guard CFPreferencesSynchronize(kCFPreferencesAnyApplication, kCFPreferencesCurrentUser, kCFPreferencesCurrentHost) else { return false }
+                return (CFPreferencesCopyValue(key, kCFPreferencesAnyApplication, kCFPreferencesCurrentUser, kCFPreferencesCurrentHost) as? NSNumber)?.boolValue == enabled
+            })
+        }
     }
 
     // MARK: - Keyboard Shortcuts
@@ -143,7 +153,7 @@ class SettingsManager {
 
     /// Read current mouse speed from HIDSystem without touching preferences.
     func readCurrentMouseSpeed() -> Double? {
-        let speed = withHIDSystemConnection { connection -> Double? in
+        let speed = Self.withHIDSystemConnection { connection -> Double? in
             var speed = 0.0
             let result = _IOHIDGetAccelerationWithKey(connection, mouseAccelerationKey, &speed)
             guard result == kIOReturnSuccess else { return nil }
@@ -170,7 +180,7 @@ class SettingsManager {
     // MARK: - IOKit Mouse
 
     private func applyMouseSpeedViaIOKit(_ speed: Double) -> Bool {
-        withHIDSystemConnection { connection in
+        Self.withHIDSystemConnection { connection in
             _IOHIDSetAccelerationWithKey(connection, mouseAccelerationKey, speed) == kIOReturnSuccess
         } ?? false
     }
@@ -256,8 +266,11 @@ class SettingsManager {
     }
 
     /// Capture baselines without modifying system settings. Persist this before applying it.
-    func captureKeyboardSettings(functionKeysEnabled: Bool, shortcutIDs: [Int], gestures: [GestureEntry]) -> KeyboardSnapshot {
+    func captureKeyboardSettings(functionKeysEnabled: Bool, shortcutIDs: [Int], gestures: [GestureEntry]) throws -> KeyboardSnapshot {
         let previousFnKeys = functionKeysEnabled ? readFunctionKeysEnabled() : nil
+        guard !functionKeysEnabled || previousFnKeys != nil else {
+            throw RecoveryController.Failure.message("The current function-key mode could not be read. Keyboard settings were not changed.")
+        }
         let previousShortcuts = captureShortcutStates(ids: shortcutIDs)
         let shortcutIDsToDisable = previousShortcuts.filter(\.value).map(\.key)
         let previousGestures = gestures.isEmpty ? nil : captureGestureValues(entries: gestures)
@@ -277,7 +290,9 @@ class SettingsManager {
     func applyKeyboardSettings(_ snapshot: KeyboardSnapshot) throws {
         if snapshot.functionKeysChanged {
             Log.info("Activating fn keys: \(snapshot.previousFunctionKeysEnabled ?? false) → true", category: "Keyboard")
-            writeFunctionKeys(enabled: true)
+            guard writeFunctionKeys(enabled: true) else {
+                throw RecoveryController.Failure.message("Function-key mode could not be applied and verified. Its original setting is saved for recovery.")
+            }
         }
         if !snapshot.shortcutIDsToDisable.isEmpty {
             try shortcutBlocker.startBlocking(shortcutIDs: snapshot.shortcutIDsToDisable)
@@ -286,7 +301,7 @@ class SettingsManager {
             writeGestures(entries: snapshot.gesturesToDisable, value: 0)
         }
 
-        if snapshot.functionKeysChanged || !snapshot.gesturesToDisable.isEmpty {
+        if !snapshot.gesturesToDisable.isEmpty {
             applyKeyboardChanges()
         }
     }
@@ -301,8 +316,12 @@ class SettingsManager {
         if changes.functionKeysChanged {
             if let restoreTo = changes.previousFunctionKeysEnabled {
                 Log.info("Restoring fn keys → \(restoreTo)", category: "Keyboard")
-                writeFunctionKeys(enabled: restoreTo)
-                didChange = true
+                if changes.functionKeysWerePersisted, !functionKeys.restoreLegacyPreference(restoreTo) {
+                    failures.append("Original function-key preference could not be saved")
+                }
+                if !writeFunctionKeys(enabled: restoreTo) {
+                    failures.append("Original function-key mode could not be applied and verified")
+                }
             } else {
                 failures.append("Original function-key setting is missing")
             }
@@ -351,12 +370,8 @@ class SettingsManager {
         if didChange {
             applyKeyboardChanges()
         }
-        if changes.functionKeysChanged, let expected = changes.previousFunctionKeysEnabled,
-           !verifyFunctionKeysEnabled(expected) {
-            failures.append("Function-key setting could not be verified")
-        }
 
-        Log.info("Keyboard restore complete (changed=\(didChange), failures=\(failures.count))", category: "Keyboard")
+        Log.info("Keyboard restore complete (changed=\(didChange || changes.functionKeysChanged), failures=\(failures.count))", category: "Keyboard")
         return failures
     }
 
@@ -407,7 +422,7 @@ class SettingsManager {
 
     private let mouseAccelerationKey = "HIDMouseAcceleration" as CFString
 
-    private func withHIDSystemConnection<T>(_ body: (io_connect_t) -> T?) -> T? {
+    private static func withHIDSystemConnection<T>(_ body: (io_connect_t) -> T?) -> T? {
         guard let matching = IOServiceMatching("IOHIDSystem") else { return nil }
 
         let service = IOServiceGetMatchingService(kIOMainPortDefault, matching)
