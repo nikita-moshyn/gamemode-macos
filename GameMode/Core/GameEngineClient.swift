@@ -66,7 +66,7 @@ extension DependencyValues {
 final class GameEngine: @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.nikita.GameMode.settings", qos: .userInitiated)
     private let settingsManager = SettingsManager()
-    private let refreshRateLock = RefreshRateLock()
+    private let refreshRateLock: RefreshRateLock
     private let snapshot = LockIsolated(GameEngineClient.Snapshot())
     private let journal: StateJournal
     private lazy var recovery = RecoveryController(journal: journal, operations: .init(
@@ -78,8 +78,9 @@ final class GameEngine: @unchecked Sendable {
         applyMouse: { [unowned self] in self.settingsManager.applyMouseSpeed($0) }
     ))
 
-    init(journal: StateJournal = .shared) {
+    init(journal: StateJournal = .shared, refreshRateLock: RefreshRateLock = RefreshRateLock()) {
         self.journal = journal
+        self.refreshRateLock = refreshRateLock
         refreshRateLock.willChangeDisplay = { record in
             let state = try journal.load()
             if let existing = state.appliedChanges.displayRestores.first(where: { $0.displayUUID == record.displayUUID }) {
@@ -132,6 +133,9 @@ final class GameEngine: @unchecked Sendable {
     }
 
     private func perform(_ operation: GameEngineClient.Operation, context: GameEngineClient.Context) throws {
+        defer {
+            if operation.isRecovery { refreshRateLock.resumeAutomaticRecovery() }
+        }
         switch operation {
         case .startup: try recovery.prepareForLaunch(restoreAutomatically: context.config.system.restoreOnLaunch)
         case .recover, .terminate: try recovery.restore()
@@ -150,7 +154,6 @@ final class GameEngine: @unchecked Sendable {
             }, apply: { [self] in try settingsManager.applyKeyboardSettings($0) })
         case .display: try applyDisplays(context: context)
         }
-        if operation.isRecovery { refreshRateLock.resumeAutomaticRecovery() }
     }
 
     private func activate(context: GameEngineClient.Context, read: () -> GameEngineClient.Context) throws {

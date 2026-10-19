@@ -195,7 +195,7 @@ final class RefreshRateLock {
     private var pendingDisplayRestoreIDs = Set<String>()
     private var conflictingDisplayRestoreIDs = Set<String>()
     private var isRestoringDisplayModes = false
-    private var automaticRecoveryPaused = false
+    private(set) var automaticRecoveryPaused = false
     private var displayLink: CVDisplayLink?
     private var flipLayers: [CALayer] = []
     private var screenObserver: NSObjectProtocol?

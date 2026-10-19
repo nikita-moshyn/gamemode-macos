@@ -514,6 +514,59 @@ final class RecoveryControllerTests: XCTestCase {
     }
 }
 
+@MainActor
+final class GameEngineRecoveryTests: XCTestCase {
+    func testFailedAcceptanceResumesDisplayRecoveryAndKeepsOriginalsUntilSuccessfulRetry() async throws {
+        for failArchive in [true, false] {
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            let refreshRateLock = RefreshRateLock()
+            defer {
+                refreshRateLock.abandonCurrentSession()
+                try? FileManager.default.removeItem(at: directory)
+            }
+            var isAccepting = false
+            var failWrites = true
+            let journal = StateJournal(directory: directory, writer: { data, url in
+                if isAccepting {
+                    DispatchQueue.main.sync {
+                        XCTAssertTrue(refreshRateLock.automaticRecoveryPaused, "Reconnect recovery must stay paused until acceptance commits")
+                        XCTAssertTrue(refreshRateLock.isActive, "Pending display originals must survive until acceptance commits")
+                    }
+                    let isFailureTarget = failArchive ? url.pathComponents.contains("archives") : url == directory.appendingPathComponent("manifest.json")
+                    if failWrites && isFailureTarget { throw CocoaError(.fileWriteUnknown) }
+                }
+                try StateJournal.writeDurably(data, to: url)
+            })
+            // An unavailable UUID keeps recovery pending without changing a live display.
+            let record = DisplayRecoveryRecord(displayUUID: UUID().uuidString, displayName: "Disconnected display", mode: RecoveryDisplayMode(width: 1920, height: 1080, pixelWidth: 1920, pixelHeight: 1080, refreshRate: 60, ioFlags: 0, modeID: 1))
+            var changes = AppliedChanges.empty
+            changes.displayRestores = [record]
+            let state = GameModeState(isActive: true, activatedAt: Date(), appliedChanges: changes)
+            try journal.begin(state)
+            let engine = GameEngine(journal: journal, refreshRateLock: refreshRateLock)
+            XCTAssertFalse(refreshRateLock.restorePersistedDisplayModes([record]).isEmpty)
+            let request = GameEngineClient.Request(id: 1, operation: .accept)
+            let context = GameEngineClient.Context(config: .defaults, session: .init(), request: request, needsDisplay: false)
+            let (client, _) = engine.clients { context }
+
+            isAccepting = true
+            var response: GameEngineClient.Response?
+            await client.execute(request) { response = $0 }
+            guard case .failed = response else { return XCTFail("Acceptance must report the journal failure") }
+            XCTAssertFalse(refreshRateLock.automaticRecoveryPaused, "Failed acceptance must allow reconnect recovery to retry")
+            XCTAssertTrue(refreshRateLock.isActive)
+            XCTAssertEqual(journal.inspect(), .pending(state))
+
+            failWrites = false
+            await client.execute(request) { response = $0 }
+            guard case .completed = response else { return XCTFail("Acceptance must succeed once storage recovers") }
+            XCTAssertFalse(refreshRateLock.automaticRecoveryPaused)
+            XCTAssertFalse(refreshRateLock.isActive)
+            XCTAssertEqual(journal.inspect(), .clean)
+        }
+    }
+}
+
 final class PowerSettingsParsingTests: XCTestCase {
     func test_distinctPowerSources() {
         XCTAssertEqual(PowerManager.parseLowPowerModeSettings("Battery Power:\n lowpowermode 1\nAC Power:\n lowpowermode 0\nUPS Power:\n lowpowermode 1"), ["b": 1, "c": 0, "u": 1])
