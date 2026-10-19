@@ -2,13 +2,15 @@
 //  SettingsManager.swift
 //  GameMode
 //
-//  Created by Nikita Moshyn on 15/03/2026.
+//  Created by Nikita Moshyn on 13/10/2026.
 //  Copyright © 2026 Nikita Moshyn. All rights reserved.
 //
 
+import CoreGraphics
 import Darwin
 import Foundation
 import IOKit
+import IOKit.hidsystem
 
 // MARK: - IOKit HIDSystem bridging
 
@@ -25,151 +27,99 @@ private func _IOHIDGetAccelerationWithKey(_ handle: io_connect_t, _ key: CFStrin
 /// Handles macOS system settings changes.
 ///
 /// Architecture:
-///   - **Preferences** — uses CoreFoundation `CFPreferences` API directly
-///     (in-process, no subprocess spawning).
-///   - **Symbolic hotkeys** — reads/writes plist files directly via
-///     `PropertyListSerialization` (no PlistBuddy subprocess).
-///   - **Apply** — sends SIGHUP to cfprefsd (no kill+restart) and runs
-///     `activateSettings -u` fire-and-forget.
+///   - **Function keys** — temporary, verified HID mode changes; leaves the
+///     user's saved keyboard preferences alone.
+///   - **Gesture preferences** — uses CoreFoundation `CFPreferences` directly.
+///   - **System shortcuts** — blocks configured symbolic hotkeys with a
+///     process-owned event tap instead of rewriting system shortcut files.
+///   - **Apply** — avoids `cfprefsd` signals and private `activateSettings`
+///     calls in the toggle path.
 ///   - **Mouse** — applies instantly via IOKit HIDSystem (no daemon restart).
 ///
 /// No admin privileges required.
 class SettingsManager {
 
-    private let activateSettingsBin = "/System/Library/PrivateFrameworks/SystemAdministration.framework/Resources/activateSettings"
-    private let functionKeysPreferenceKey = "com.apple.keyboard.fnState" as CFString
     private let legacyMouseScalingPreferenceKey = "com.apple.mouse.scaling" as CFString
+    private let functionKeys: FunctionKeyAccess
+    private let shortcutBlocker: SystemShortcutBlocker
+
+    init(shortcutBlocker: SystemShortcutBlocker = SystemShortcutBlocker(), functionKeys: FunctionKeyAccess = .live) {
+        self.shortcutBlocker = shortcutBlocker
+        self.functionKeys = functionKeys
+    }
+
+    /// Release process-owned effects after an explicit recovery reset, without writing preferences.
+    func stopOwnedEffects() {
+        shortcutBlocker.stopBlocking()
+    }
 
     // MARK: - Function Keys
 
-    func readFunctionKeysEnabled() -> Bool {
-        let value = CFPreferencesCopyValue(
-            functionKeysPreferenceKey,
-            kCFPreferencesAnyApplication,
-            kCFPreferencesCurrentUser,
-            kCFPreferencesCurrentHost
-        ) as? NSNumber
-        return value?.boolValue ?? false
+    /// A saved fnState preference can disagree with the active keyboard mode.
+    /// A failed HID read must never become an invented "media keys" baseline.
+    func readFunctionKeysEnabled() -> Bool? {
+        functionKeys.read()
     }
 
-    /// Write "Use F1, F2, etc. keys as standard function keys" preference.
-    /// Does NOT apply — call `applyKeyboardChanges()` after.
-    func writeFunctionKeys(enabled: Bool) {
-        let tag = enabled ? "ACTIVATE" : "RESTORE"
-        print("[FnKeys:\(tag)] ━━━ START ━━━")
-
-        // 1. Read current state from CFPreferences (ByHost)
-        let cfBefore = readFunctionKeysEnabled()
-        print("[FnKeys:\(tag)] CFPreferences read BEFORE: \(cfBefore)")
-
-        // 2. Read raw plist file on disk to compare
-        let diskBefore = readFnStateFromDisk()
-        print("[FnKeys:\(tag)] Disk plist BEFORE: \(diskBefore ?? "nil (key missing)")")
-
-        // 3. Read via defaults command for cross-check
-        let defaultsBefore = readFnStateViaDefaults()
-        print("[FnKeys:\(tag)] defaults read BEFORE: \(defaultsBefore ?? "nil (failed)")")
-
-        // 4. Write
-        print("[FnKeys:\(tag)] Writing \(enabled ? "kCFBooleanTrue" : "kCFBooleanFalse") to \(functionKeysPreferenceKey)...")
-        CFPreferencesSetValue(
-            functionKeysPreferenceKey,
-            enabled ? kCFBooleanTrue : kCFBooleanFalse,
-            kCFPreferencesAnyApplication,
-            kCFPreferencesCurrentUser,
-            kCFPreferencesCurrentHost
-        )
-
-        // 5. Read back BEFORE sync
-        let cfAfterWrite = readFunctionKeysEnabled()
-        print("[FnKeys:\(tag)] CFPreferences read AFTER write (before sync): \(cfAfterWrite)")
-
-        // 6. Synchronize
-        let synced = CFPreferencesSynchronize(
-            kCFPreferencesAnyApplication,
-            kCFPreferencesCurrentUser,
-            kCFPreferencesCurrentHost
-        )
-        print("[FnKeys:\(tag)] CFPreferencesSynchronize returned: \(synced)")
-
-        // 7. Read back AFTER sync
-        let cfAfterSync = readFunctionKeysEnabled()
-        print("[FnKeys:\(tag)] CFPreferences read AFTER sync: \(cfAfterSync)")
-
-        // 8. Read disk AFTER sync
-        let diskAfter = readFnStateFromDisk()
-        print("[FnKeys:\(tag)] Disk plist AFTER sync: \(diskAfter ?? "nil (key missing)")")
-
-        // 9. Cross-check with defaults
-        let defaultsAfter = readFnStateViaDefaults()
-        print("[FnKeys:\(tag)] defaults read AFTER sync: \(defaultsAfter ?? "nil (failed)")")
-
-        // 10. Summary
-        let success = cfAfterSync == enabled
-        print("[FnKeys:\(tag)] ━━━ \(success ? "OK" : "FAILED") ━━━  requested=\(enabled) cfResult=\(cfAfterSync) disk=\(diskAfter ?? "nil")")
-    }
-
-    /// Read fnState directly from the ByHost plist file on disk.
-    private func readFnStateFromDisk() -> String? {
-        let byHostDir = NSHomeDirectory() + "/Library/Preferences/ByHost"
-        guard let files = try? FileManager.default.contentsOfDirectory(atPath: byHostDir) else {
-            return "ERROR: cannot list ByHost dir"
+    /// Apply immediately without persisting a gaming preference across logins.
+    /// Success requires both a successful HID setter and matching live readback.
+    @discardableResult
+    func writeFunctionKeys(enabled: Bool) -> Bool {
+        guard functionKeys.apply(enabled) else {
+            Log.error("IOKit failed to set function-key mode", category: "FnKeys")
+            return false
         }
-        let globalFiles = files.filter { $0.hasPrefix(".GlobalPreferences.") && $0.hasSuffix(".plist") }
-        print("[FnKeys:disk] ByHost plist files: \(globalFiles)")
-
-        for file in globalFiles {
-            let path = byHostDir + "/" + file
-            guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
-                  let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any] else {
-                continue
-            }
-            if let val = plist["com.apple.keyboard.fnState"] {
-                return "\(val) (in \(file))"
-            }
-        }
-        return nil
+        guard verifyFunctionKeysEnabled(enabled) else { return false }
+        Log.info("Fn keys set to \(enabled ? "standard" : "media") mode via IOKit", category: "FnKeys")
+        return true
     }
 
-    /// Read fnState via `defaults` command for cross-check.
-    private func readFnStateViaDefaults() -> String? {
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/usr/bin/defaults")
-        task.arguments = ["-currentHost", "read", "-g", "com.apple.keyboard.fnState"]
-        let pipe = Pipe()
-        task.standardOutput = pipe
-        task.standardError = pipe
-        do {
-            try task.run()
-            task.waitUntilExit()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        } catch {
-            return "ERROR: \(error)"
-        }
-    }
-
-    /// Best-effort verification that the stored fn-state matches the requested value.
+    /// Verify the active HID mode, not a cached or stored preference.
     func verifyFunctionKeysEnabled(_ enabled: Bool, timeout: TimeInterval = 1.5) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         repeat {
-            CFPreferencesSynchronize(
-                kCFPreferencesAnyApplication,
-                kCFPreferencesCurrentUser,
-                kCFPreferencesCurrentHost
-            )
             if readFunctionKeysEnabled() == enabled {
-                print("[FnKeys:verify] Verified: standard=\(enabled)")
+                Log.debug("[FnKeys:verify] Verified: standard=\(enabled)", category: "FnKeys")
                 return true
             }
+            guard Date() < deadline else { break }
             usleep(100_000)
         } while Date() < deadline
 
-        print("[FnKeys:verify] FAILED to verify: standard=\(enabled), actual=\(readFunctionKeysEnabled())")
-        let diskVal = readFnStateFromDisk()
-        let defaultsVal = readFnStateViaDefaults()
-        print("[FnKeys:verify] disk=\(diskVal ?? "nil"), defaults=\(defaultsVal ?? "nil")")
+        Log.warning("[FnKeys:verify] FAILED to verify: standard=\(enabled), actual=\(String(describing: readFunctionKeysEnabled()))", category: "FnKeys")
         return false
+    }
+
+    /// Injectable at the system boundary so regression tests never touch a keyboard.
+    struct FunctionKeyAccess {
+        var read: () -> Bool?
+        var apply: (Bool) -> Bool
+        var restoreLegacyPreference: (Bool) -> Bool
+
+        static var live: Self {
+            Self(read: {
+                SettingsManager.withHIDSystemConnection { connection in
+                    var value: Unmanaged<CFTypeRef>?
+                    let result = IOHIDCopyCFTypeParameter(connection, kIOHIDFKeyModeKey as CFString, &value)
+                    let parameter = value?.takeRetainedValue()
+                    guard result == kIOReturnSuccess, let number = parameter as? NSNumber,
+                          number.intValue == 0 || number.intValue == 1 else { return nil }
+                    return number.boolValue
+                }
+            }, apply: { enabled in
+                SettingsManager.withHIDSystemConnection { connection in
+                    IOHIDSetCFTypeParameter(connection, kIOHIDFKeyModeKey as CFString, NSNumber(value: enabled ? 1 : 0)) == kIOReturnSuccess
+                } ?? false
+            }, restoreLegacyPreference: { enabled in
+                // Releases through beta.3 persisted this host-specific preference.
+                // Only their pending recovery records authorize writing it back.
+                let key = "com.apple.keyboard.fnState" as CFString
+                CFPreferencesSetValue(key, enabled ? kCFBooleanTrue : kCFBooleanFalse,
+                                      kCFPreferencesAnyApplication, kCFPreferencesCurrentUser, kCFPreferencesCurrentHost)
+                guard CFPreferencesSynchronize(kCFPreferencesAnyApplication, kCFPreferencesCurrentUser, kCFPreferencesCurrentHost) else { return false }
+                return (CFPreferencesCopyValue(key, kCFPreferencesAnyApplication, kCFPreferencesCurrentUser, kCFPreferencesCurrentHost) as? NSNumber)?.boolValue == enabled
+            })
+        }
     }
 
     // MARK: - Keyboard Shortcuts
@@ -184,132 +134,35 @@ class SettingsManager {
                   let enabled = entry["enabled"] as? Bool else { continue }
             states[id] = enabled
         }
+        Log.debug("Captured \(states.count) shortcut state(s)", category: "Settings")
         return states
     }
 
-    /// Toggle a list of symbolic hotkey IDs.
-    /// Only flips the `enabled` flag — never touches the key binding.
-    /// Reads/writes the plist directly — no PlistBuddy subprocess.
-    func writeShortcuts(ids: [Int], enabled: Bool) {
-        let states = Dictionary(uniqueKeysWithValues: ids.map { ($0, enabled) })
-        writeShortcutStates(states)
-    }
-
-    /// Restore exact symbolic hotkey enabled states.
-    func writeShortcutStates(_ states: [Int: Bool]) {
-        guard !states.isEmpty else { return }
-
-        let plistPath = "\(NSHomeDirectory())/Library/Preferences/com.apple.symbolichotkeys.plist"
-        let plistURL = URL(fileURLWithPath: plistPath)
-
-        guard let data = try? Data(contentsOf: plistURL),
-              var plist = try? PropertyListSerialization.propertyList(
-                  from: data, options: .mutableContainersAndLeaves, format: nil
-              ) as? [String: Any],
-              var hotkeys = plist["AppleSymbolicHotKeys"] as? [String: Any] else {
-            print("[Settings] Cannot read symbolic hotkeys plist")
-            return
-        }
-
-        for (id, enabled) in states {
-            let key = String(id)
-            if var entry = hotkeys[key] as? [String: Any] {
-                entry["enabled"] = enabled
-                hotkeys[key] = entry
-            }
-        }
-
-        plist["AppleSymbolicHotKeys"] = hotkeys
-
-        if let outData = try? PropertyListSerialization.data(
-            fromPropertyList: plist, format: .binary, options: 0
-        ) {
-            try? outData.write(to: plistURL, options: .atomic)
-        }
-
-        print("[Settings] Wrote \(states.count) shortcut state(s)")
-    }
-
     /// Apply all pending keyboard/shortcut changes in one shot.
-    /// Signals cfprefsd to reload (SIGHUP, not kill) and schedules activateSettings
-    /// at background priority after a short delay to avoid system stalls.
+    /// Intentionally avoids `cfprefsd` signals and private `activateSettings -u`.
     func applyKeyboardChanges() {
-        let fnBefore = readFunctionKeysEnabled()
-        print("[Apply] fnState BEFORE signalPreferencesDaemon: \(fnBefore)")
-
-        signalPreferencesDaemon()
-
-        // Check if SIGHUP changed anything
-        usleep(50_000) // 50ms for cfprefsd to process signal
         CFPreferencesSynchronize(
             kCFPreferencesAnyApplication,
             kCFPreferencesCurrentUser,
             kCFPreferencesCurrentHost
         )
-        let fnAfterSignal = readFunctionKeysEnabled()
-        print("[Apply] fnState AFTER signalPreferencesDaemon: \(fnAfterSignal)")
-        if fnBefore != fnAfterSignal {
-            print("[Apply] ⚠️ WARNING: signalPreferencesDaemon CHANGED fnState from \(fnBefore) to \(fnAfterSignal)!")
-        }
-
-        // Schedule activateSettings with post-check
-        let bin = activateSettingsBin
-        let fnKeyPref = functionKeysPreferenceKey
-        DispatchQueue.global(qos: .background).asyncAfter(deadline: .now() + 0.5) {
-            let fnBeforeActivate = CFPreferencesCopyValue(
-                fnKeyPref,
-                kCFPreferencesAnyApplication,
-                kCFPreferencesCurrentUser,
-                kCFPreferencesCurrentHost
-            ) as? NSNumber
-            print("[Apply] fnState BEFORE activateSettings: \(fnBeforeActivate?.boolValue ?? false)")
-
-            let task = Process()
-            task.executableURL = URL(fileURLWithPath: bin)
-            task.arguments = ["-u"]
-            let errPipe = Pipe()
-            task.standardOutput = FileHandle.nullDevice
-            task.standardError = errPipe
-            do {
-                try task.run()
-                task.waitUntilExit()
-                let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
-                let errStr = String(data: errData, encoding: .utf8) ?? ""
-                print("[Apply] activateSettings exit=\(task.terminationStatus) stderr=\(errStr.isEmpty ? "(empty)" : errStr)")
-            } catch {
-                print("[Apply] activateSettings FAILED: \(error)")
-            }
-
-            // Check if activateSettings changed fnState
-            CFPreferencesSynchronize(
-                kCFPreferencesAnyApplication,
-                kCFPreferencesCurrentUser,
-                kCFPreferencesCurrentHost
-            )
-            let fnAfterActivate = CFPreferencesCopyValue(
-                fnKeyPref,
-                kCFPreferencesAnyApplication,
-                kCFPreferencesCurrentUser,
-                kCFPreferencesCurrentHost
-            ) as? NSNumber
-            print("[Apply] fnState AFTER activateSettings: \(fnAfterActivate?.boolValue ?? false)")
-            if fnBeforeActivate?.boolValue != fnAfterActivate?.boolValue {
-                print("[Apply] ⚠️ WARNING: activateSettings CHANGED fnState from \(fnBeforeActivate?.boolValue ?? false) to \(fnAfterActivate?.boolValue ?? false)!")
-            }
-        }
-        print("[Apply] keyboard changes dispatched")
+        Log.debug("Keyboard preferences synchronized without daemon reload", category: "Settings")
     }
 
     // MARK: - Mouse Speed
 
     /// Read current mouse speed from HIDSystem without touching preferences.
     func readCurrentMouseSpeed() -> Double? {
-        withHIDSystemConnection { connection in
+        let speed = Self.withHIDSystemConnection { connection -> Double? in
             var speed = 0.0
             let result = _IOHIDGetAccelerationWithKey(connection, mouseAccelerationKey, &speed)
             guard result == kIOReturnSuccess else { return nil }
             return speed
         }
+        if speed == nil {
+            Log.error("Failed to read current mouse speed from IOKit", category: "Mouse")
+        }
+        return speed
     }
 
     /// Change mouse speed immediately via IOKit HIDSystem.
@@ -317,9 +170,9 @@ class SettingsManager {
     func applyMouseSpeed(_ speed: Double) -> Bool {
         let applied = applyMouseSpeedViaIOKit(speed)
         if applied {
-            print("[Settings] Mouse speed: \(speed) via IOKit")
+            Log.info("Mouse speed set to \(speed) via IOKit", category: "Mouse")
         } else {
-            print("[Settings] IOKit failed for mouse speed")
+            Log.error("IOKit failed to set mouse speed", category: "Mouse")
         }
         return applied
     }
@@ -327,7 +180,7 @@ class SettingsManager {
     // MARK: - IOKit Mouse
 
     private func applyMouseSpeedViaIOKit(_ speed: Double) -> Bool {
-        withHIDSystemConnection { connection in
+        Self.withHIDSystemConnection { connection in
             _IOHIDSetAccelerationWithKey(connection, mouseAccelerationKey, speed) == kIOReturnSuccess
         } ?? false
     }
@@ -350,12 +203,12 @@ class SettingsManager {
                 if let number = value as? NSNumber {
                     domainValues[domain] = number.intValue
                 } else {
-                    domainValues[domain] = nil
+                    domainValues.updateValue(nil, forKey: domain)
                 }
             }
             captured[entry.id] = domainValues
         }
-        print("[Settings] Captured \(captured.count) gesture value(s)")
+        Log.debug("Captured \(captured.count) gesture value(s)", category: "Settings")
         return captured
     }
 
@@ -376,11 +229,12 @@ class SettingsManager {
             }
         }
         synchronizePreferences(domains: updatedDomains)
-        print("[Settings] Wrote \(entries.count) gesture(s) = \(value)")
+        Log.info("Wrote \(entries.count) gesture(s) = \(value)", category: "Settings")
     }
 
     /// Restore gestures from previously captured values.
-    func restoreGestures(capturedValues: GesturePreferenceValues) {
+    @discardableResult
+    func restoreGestures(capturedValues: GesturePreferenceValues) -> Bool {
         var updatedDomains = Set<String>()
         for (gestureID, domainValues) in capturedValues {
             for (domain, original) in domainValues {
@@ -394,14 +248,16 @@ class SettingsManager {
                 updatedDomains.insert(domain)
             }
         }
-        synchronizePreferences(domains: updatedDomains)
-        print("[Settings] Restored \(capturedValues.count) gesture(s)")
+        let synchronized = synchronizePreferences(domains: updatedDomains)
+        Log.info("Restored \(capturedValues.count) gesture(s)", category: "Settings")
+        return synchronized
     }
 
     // MARK: - Unified Keyboard Settings (fn keys + shortcuts + gestures)
 
     /// Snapshot of all keyboard-related state before gaming mode changes.
     struct KeyboardSnapshot {
+        var functionKeysChanged: Bool
         var previousFunctionKeysEnabled: Bool?
         var previousShortcutStates: [Int: Bool]?
         var shortcutIDsToDisable: [Int]
@@ -409,66 +265,105 @@ class SettingsManager {
         var gesturesToDisable: [GestureEntry]
     }
 
-    /// Capture current keyboard state, apply gaming-mode changes, and return
-    /// the snapshot needed for restoration. One call does everything.
-    func activateKeyboardSettings(functionKeysEnabled: Bool, shortcutIDs: [Int], gestures: [GestureEntry]) -> KeyboardSnapshot {
-        // 1. Capture baselines
+    /// Capture baselines without modifying system settings. Persist this before applying it.
+    func captureKeyboardSettings(functionKeysEnabled: Bool, shortcutIDs: [Int], gestures: [GestureEntry]) throws -> KeyboardSnapshot {
         let previousFnKeys = functionKeysEnabled ? readFunctionKeysEnabled() : nil
+        guard !functionKeysEnabled || previousFnKeys != nil else {
+            throw RecoveryController.Failure.message("The current function-key mode could not be read. Keyboard settings were not changed.")
+        }
         let previousShortcuts = captureShortcutStates(ids: shortcutIDs)
         let shortcutIDsToDisable = previousShortcuts.filter(\.value).map(\.key)
         let previousGestures = gestures.isEmpty ? nil : captureGestureValues(entries: gestures)
+        let shouldChangeFunctionKeys = functionKeysEnabled && previousFnKeys != true
 
-        print("[Keyboard] Captured: fnKeys=\(previousFnKeys as Any), shortcuts=\(previousShortcuts.count), gestures=\(previousGestures?.count ?? 0)")
+        Log.debug("Captured: fnKeys=\(previousFnKeys as Any), shortcuts=\(previousShortcuts.count), gestures=\(previousGestures?.count ?? 0)", category: "Keyboard")
 
-        // 2. Apply gaming-mode changes
-        if functionKeysEnabled {
-            print("[Keyboard] Activating fn keys: \(previousFnKeys ?? false) → true")
-            writeFunctionKeys(enabled: true)
-        }
-        if !shortcutIDsToDisable.isEmpty {
-            writeShortcuts(ids: shortcutIDsToDisable, enabled: false)
-        }
-        if !gestures.isEmpty {
-            writeGestures(entries: gestures, value: 0)
-        }
-
-        // 3. Flush to system
-        if functionKeysEnabled || !shortcutIDsToDisable.isEmpty || !gestures.isEmpty {
-            applyKeyboardChanges()
-        }
-
-        return KeyboardSnapshot(previousFunctionKeysEnabled: previousFnKeys,
+        return KeyboardSnapshot(functionKeysChanged: shouldChangeFunctionKeys,
+                                previousFunctionKeysEnabled: previousFnKeys,
                                 previousShortcutStates: previousShortcuts.isEmpty ? nil : previousShortcuts,
                                 shortcutIDsToDisable: shortcutIDsToDisable,
                                 previousGestureValues: previousGestures,
                                 gesturesToDisable: gestures)
     }
 
+    /// Apply a durably checkpointed snapshot using the existing system-write order.
+    func applyKeyboardSettings(_ snapshot: KeyboardSnapshot) throws {
+        if snapshot.functionKeysChanged {
+            Log.info("Activating fn keys: \(snapshot.previousFunctionKeysEnabled ?? false) → true", category: "Keyboard")
+            guard writeFunctionKeys(enabled: true) else {
+                throw RecoveryController.Failure.message("Function-key mode could not be applied and verified. Its original setting is saved for recovery.")
+            }
+        }
+        if !snapshot.shortcutIDsToDisable.isEmpty {
+            try shortcutBlocker.startBlocking(shortcutIDs: snapshot.shortcutIDsToDisable)
+        }
+        if !snapshot.gesturesToDisable.isEmpty {
+            writeGestures(entries: snapshot.gesturesToDisable, value: 0)
+        }
+
+        if !snapshot.gesturesToDisable.isEmpty {
+            applyKeyboardChanges()
+        }
+    }
+
     /// Restore all keyboard settings from a journal's AppliedChanges.
-    func restoreKeyboardSettings(from changes: AppliedChanges) {
+    @discardableResult
+    func restoreKeyboardSettings(from changes: AppliedChanges) -> [String] {
         var didChange = false
+        var failures: [String] = []
 
         // 1. Restore fn keys
         if changes.functionKeysChanged {
-            let restoreTo = changes.previousFunctionKeysEnabled ?? false
-            print("[Keyboard] Restoring fn keys → \(restoreTo)")
-            writeFunctionKeys(enabled: restoreTo)
-            didChange = true
+            if let restoreTo = changes.previousFunctionKeysEnabled {
+                Log.info("Restoring fn keys → \(restoreTo)", category: "Keyboard")
+                if changes.functionKeysWerePersisted, !functionKeys.restoreLegacyPreference(restoreTo) {
+                    failures.append("Original function-key preference could not be saved")
+                }
+                if !writeFunctionKeys(enabled: restoreTo) {
+                    failures.append("Original function-key mode could not be applied and verified")
+                }
+            } else {
+                failures.append("Original function-key setting is missing")
+            }
         }
 
-        // 2. Restore shortcuts
-        if let previousStates = changes.previousShortcutStates {
-            writeShortcutStates(previousStates)
-            didChange = true
-        } else if !changes.disabledShortcutIDs.isEmpty {
-            writeShortcuts(ids: changes.disabledShortcutIDs, enabled: true)
-            didChange = true
+        // 2. Stop process-owned shortcut blocking. System shortcut preferences were never changed.
+        if changes.previousShortcutStates != nil || !changes.disabledShortcutIDs.isEmpty {
+            shortcutBlocker.stopBlocking()
+        }
+        if changes.shortcutsWerePersisted {
+            if let states = changes.previousShortcutStates {
+                failures.append(contentsOf: restorePersistedShortcutStates(states))
+            } else if !changes.disabledShortcutIDs.isEmpty {
+                failures.append("Original system shortcut settings are missing")
+            }
         }
 
         // 3. Restore gestures
-        if changes.gesturesChanged, let previousValues = changes.previousGestureValues {
-            restoreGestures(capturedValues: previousValues)
-            didChange = true
+        if changes.gesturesChanged {
+            if let previousValues = changes.previousGestureValues, !previousValues.isEmpty {
+                var resolvedValues = previousValues
+                for (gestureID, domains) in previousValues where domains.isEmpty {
+                    failures.append("Original preference domains are missing for \(gestureID)")
+                    resolvedValues.removeValue(forKey: gestureID)
+                }
+                for (gestureID, domains) in previousValues where domains.keys.contains("legacy") {
+                    guard let entry = GestureEntry.defaults.first(where: { $0.id == gestureID }),
+                          let original = domains["legacy"] else {
+                        failures.append("Original preference domains are missing for \(gestureID)")
+                        resolvedValues.removeValue(forKey: gestureID)
+                        continue
+                    }
+                    resolvedValues[gestureID] = Dictionary(uniqueKeysWithValues: entry.domains.map { ($0, original) })
+                }
+                if !restoreGestures(capturedValues: resolvedValues) {
+                    failures.append("Gesture preferences could not be saved")
+                }
+                failures.append(contentsOf: verifyGestureValues(resolvedValues))
+                didChange = true
+            } else {
+                failures.append("Original gesture settings are missing")
+            }
         }
 
         // 4. Flush to system
@@ -476,14 +371,58 @@ class SettingsManager {
             applyKeyboardChanges()
         }
 
-        print("[Keyboard] Restore complete (changed=\(didChange))")
+        Log.info("Keyboard restore complete (changed=\(didChange || changes.functionKeysChanged), failures=\(failures.count))", category: "Keyboard")
+        return failures
+    }
+
+    private func verifyGestureValues(_ values: GesturePreferenceValues) -> [String] {
+        var failures: [String] = []
+        for (gestureID, domains) in values {
+            for (domain, expected) in domains {
+                let value = CFPreferencesCopyValue(gestureID as CFString, domain as CFString,
+                                                  kCFPreferencesCurrentUser, kCFPreferencesCurrentHost)
+                let matches = expected.map { (value as? NSNumber)?.intValue == $0 } ?? (value == nil)
+                if !matches {
+                    failures.append("Gesture \(gestureID) could not be verified in \(domain)")
+                }
+            }
+        }
+        return failures
+    }
+
+    /// Older releases persisted shortcut flags; current releases only own an event tap.
+    private func restorePersistedShortcutStates(_ states: [Int: Bool]) -> [String] {
+        guard !states.isEmpty else { return [] }
+        guard var hotkeys = loadSymbolicHotkeysPlist() else {
+            return ["System shortcut preferences could not be read"]
+        }
+        var failures: [String] = []
+        for (id, enabled) in states {
+            guard var entry = hotkeys[String(id)] as? [String: Any] else {
+                failures.append("System shortcut \(id) is unavailable")
+                continue
+            }
+            entry["enabled"] = enabled
+            hotkeys[String(id)] = entry
+        }
+        let domain = "com.apple.symbolichotkeys" as CFString
+        CFPreferencesSetValue("AppleSymbolicHotKeys" as CFString, hotkeys as CFDictionary,
+                              domain, kCFPreferencesCurrentUser, kCFPreferencesAnyHost)
+        guard CFPreferencesSynchronize(domain, kCFPreferencesCurrentUser, kCFPreferencesAnyHost) else {
+            return failures + ["System shortcut preferences could not be saved"]
+        }
+        let restored = captureShortcutStates(ids: Array(states.keys))
+        for (id, expected) in states where restored[id] != expected {
+            failures.append("System shortcut \(id) could not be verified")
+        }
+        return failures
     }
 
     // MARK: - Helpers
 
     private let mouseAccelerationKey = "HIDMouseAcceleration" as CFString
 
-    private func withHIDSystemConnection<T>(_ body: (io_connect_t) -> T?) -> T? {
+    private static func withHIDSystemConnection<T>(_ body: (io_connect_t) -> T?) -> T? {
         guard let matching = IOServiceMatching("IOHIDSystem") else { return nil }
 
         let service = IOServiceGetMatchingService(kIOMainPortDefault, matching)
@@ -515,41 +454,204 @@ class SettingsManager {
         return plist["AppleSymbolicHotKeys"] as? [String: Any]
     }
 
-    /// Send SIGHUP to cfprefsd to reload preferences without killing it.
-    /// Uses sysctl to find the PID — zero subprocess spawning.
-    private func signalPreferencesDaemon() {
-        let uid = getuid()
-
-        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_UID, Int32(uid)]
-        var bufferSize: Int = 0
-
-        // First call to get size
-        guard sysctl(&mib, UInt32(mib.count), nil, &bufferSize, nil, 0) == 0,
-              bufferSize > 0 else { return }
-
-        let count = bufferSize / MemoryLayout<kinfo_proc>.stride
-        var procs = [kinfo_proc](repeating: kinfo_proc(), count: count)
-
-        guard sysctl(&mib, UInt32(mib.count), &procs, &bufferSize, nil, 0) == 0 else { return }
-
-        let actualCount = bufferSize / MemoryLayout<kinfo_proc>.stride
-
-        for i in 0..<actualCount {
-            let name = withUnsafePointer(to: procs[i].kp_proc.p_comm) { ptr in
-                String(cString: UnsafeRawPointer(ptr).assumingMemoryBound(to: CChar.self))
+    @discardableResult
+    private func synchronizePreferences(domains: Set<String>) -> Bool {
+        var succeeded = true
+        for domain in domains {
+            if !CFPreferencesSynchronize(domain as CFString, kCFPreferencesCurrentUser, kCFPreferencesCurrentHost) {
+                succeeded = false
             }
-            if name == "cfprefsd" {
-                kill(procs[i].kp_proc.p_pid, SIGHUP)
-            }
+        }
+        return succeeded
+    }
+}
+
+final class SystemShortcutBlocker {
+    struct BlockedShortcut: Hashable {
+        let keyCode: Int64
+        let modifierMask: UInt64
+    }
+
+    struct EventTap {
+        var setEnabled: (Bool) -> Void
+        var invalidate: () -> Void
+    }
+
+    enum Failure: LocalizedError {
+        case eventTapUnavailable
+
+        var errorDescription: String? {
+            "Input Guard could not start shortcut blocking. Allow Accessibility access for GameMode in System Settings, then retry recovery before enabling Game Mode again."
         }
     }
 
-    private func synchronizePreferences(domains: Set<String>) {
-        guard !domains.isEmpty else { return }
-        for domain in domains {
-            CFPreferencesSynchronize(domain as CFString,
-                                     kCFPreferencesCurrentUser,
-                                     kCFPreferencesCurrentHost)
+    typealias EventHandler = (CGEventType, CGEvent) -> Unmanaged<CGEvent>?
+
+    private final class CallbackContext {
+        let handler: EventHandler
+        init(handler: @escaping EventHandler) { self.handler = handler }
+    }
+
+    private static let shortcutModifierMask = CGEventFlags.maskShift.rawValue
+        | CGEventFlags.maskControl.rawValue
+        | CGEventFlags.maskAlternate.rawValue
+        | CGEventFlags.maskCommand.rawValue
+    private let readShortcuts: ([Int]) -> Set<BlockedShortcut>
+    private let installTap: (@escaping EventHandler) -> EventTap?
+    // The tap callback, its lifetime, and the lookup set all belong to the main run loop.
+    private var eventTap: EventTap?
+    private var blockedShortcuts = Set<BlockedShortcut>()
+
+    init(readShortcuts: @escaping ([Int]) -> Set<BlockedShortcut> = SystemShortcutBlocker.loadShortcuts, installTap: @escaping (@escaping EventHandler) -> EventTap? = SystemShortcutBlocker.installEventTap) {
+        self.readShortcuts = readShortcuts
+        self.installTap = installTap
+    }
+
+    func startBlocking(shortcutIDs: [Int]) throws {
+        try performOnMain { try startBlockingOnMain(shortcutIDs: shortcutIDs) }
+    }
+
+    func stopBlocking() {
+        performOnMain { stopBlockingOnMain() }
+    }
+
+    private func startBlockingOnMain(shortcutIDs: [Int]) throws {
+        let shortcuts = readShortcuts(shortcutIDs)
+        guard !shortcuts.isEmpty else {
+            stopBlockingOnMain()
+            return
         }
+
+        blockedShortcuts = shortcuts
+        if let eventTap {
+            eventTap.setEnabled(true)
+            Log.info("Updated shortcut blocker with \(shortcuts.count) shortcut(s)", category: "Settings")
+            return
+        }
+
+        guard let tap = installTap({ [weak self] type, event in
+            guard let self else { return Unmanaged.passUnretained(event) }
+            return self.handleEvent(type: type, event: event)
+        }) else {
+            blockedShortcuts.removeAll()
+            throw Failure.eventTapUnavailable
+        }
+        eventTap = tap
+        tap.setEnabled(true)
+        Log.info("Started shortcut blocker with \(shortcuts.count) shortcut(s)", category: "Settings")
+    }
+
+    private static func installEventTap(handler: @escaping EventHandler) -> EventTap? {
+        let context = CallbackContext(handler: handler)
+        let events = (1 << CGEventType.keyDown.rawValue)
+            | (1 << CGEventType.tapDisabledByTimeout.rawValue)
+            | (1 << CGEventType.tapDisabledByUserInput.rawValue)
+        let callback: CGEventTapCallBack = { _, type, event, userInfo in
+            guard let userInfo else { return Unmanaged.passUnretained(event) }
+            return Unmanaged<CallbackContext>.fromOpaque(userInfo).takeUnretainedValue().handler(type, event)
+        }
+
+        guard let tap = CGEvent.tapCreate(
+            tap: .cgSessionEventTap,
+            place: .headInsertEventTap,
+            options: .defaultTap,
+            eventsOfInterest: CGEventMask(events),
+            callback: callback,
+            userInfo: Unmanaged.passUnretained(context).toOpaque()
+        ) else { return nil }
+
+        guard let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) else {
+            CFMachPortInvalidate(tap)
+            return nil
+        }
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+        return EventTap(setEnabled: { CGEvent.tapEnable(tap: tap, enable: $0) }, invalidate: {
+            // Keep userInfo alive until the main run loop can no longer call it.
+            withExtendedLifetime(context) {
+                CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
+                CFMachPortInvalidate(tap)
+            }
+        })
+    }
+
+    private func stopBlockingOnMain() {
+        eventTap?.setEnabled(false)
+        eventTap?.invalidate()
+        eventTap = nil
+        blockedShortcuts.removeAll()
+        Log.info("Stopped shortcut blocker", category: "Settings")
+    }
+
+    private func handleEvent(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+        precondition(Thread.isMainThread)
+        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            eventTap?.setEnabled(true)
+            return Unmanaged.passUnretained(event)
+        }
+
+        guard type == .keyDown else {
+            return Unmanaged.passUnretained(event)
+        }
+
+        let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+        let modifiers = event.flags.rawValue & Self.shortcutModifierMask
+        let shortcut = BlockedShortcut(keyCode: keyCode, modifierMask: modifiers)
+        guard blockedShortcuts.contains(shortcut) else {
+            return Unmanaged.passUnretained(event)
+        }
+
+        Log.debug("Blocked system shortcut keyCode=\(keyCode) modifiers=\(modifiers)", category: "Settings")
+        return nil
+    }
+
+    private static func loadShortcuts(ids: [Int]) -> Set<BlockedShortcut> {
+        guard !ids.isEmpty,
+              let hotkeys = loadSymbolicHotkeysPlist() else { return [] }
+
+        var shortcuts = Set<BlockedShortcut>()
+        for id in ids {
+            guard let entry = hotkeys[String(id)] as? [String: Any],
+                  let value = entry["value"] as? [String: Any],
+                  let parameters = value["parameters"] as? [Any],
+                  parameters.count >= 3,
+                  let keyCode = parameters[1] as? Int,
+                  let modifiers = parameters[2] as? Int,
+                  keyCode != 65_535 else { continue }
+            shortcuts.insert(
+                BlockedShortcut(
+                    keyCode: Int64(keyCode),
+                    modifierMask: UInt64(modifiers) & shortcutModifierMask
+                )
+            )
+        }
+        return shortcuts
+    }
+
+    private static func loadSymbolicHotkeysPlist() -> [String: Any]? {
+        let plistURL = URL(
+            fileURLWithPath: "\(NSHomeDirectory())/Library/Preferences/com.apple.symbolichotkeys.plist"
+        )
+
+        guard let data = try? Data(contentsOf: plistURL),
+              let plist = try? PropertyListSerialization.propertyList(
+                  from: data,
+                  options: .mutableContainersAndLeaves,
+                  format: nil
+              ) as? [String: Any] else {
+            return nil
+        }
+
+        return plist["AppleSymbolicHotKeys"] as? [String: Any]
+    }
+
+    private func performOnMain<T>(_ action: () throws -> T) rethrows -> T {
+        if Thread.isMainThread { return try action() }
+        return try DispatchQueue.main.sync(execute: action)
+    }
+
+    deinit {
+        let tap = eventTap
+        if Thread.isMainThread { tap?.invalidate() }
+        else { DispatchQueue.main.sync { tap?.invalidate() } }
     }
 }

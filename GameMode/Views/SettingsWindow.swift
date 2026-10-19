@@ -2,103 +2,89 @@
 //  SettingsWindow.swift
 //  GameMode
 //
-//  Created by Nikita Moshyn on 15/03/2026.
+//  Created by Nikita Moshyn on 12/10/2026.
 //  Copyright © 2026 Nikita Moshyn. All rights reserved.
 //
 
+import ComposableArchitecture
 import SwiftUI
 
-enum SettingsSection: String, CaseIterable, Identifiable {
-    case general
-    case shortcuts
-    case hotkeys
-    case applications
-    case mouse
-    case system
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .general:      return "General"
-        case .shortcuts:    return "Shortcuts"
-        case .hotkeys:      return "Hotkeys"
-        case .applications: return "Applications"
-        case .mouse:        return "Mouse"
-        case .system:       return "System"
-        }
-    }
-
-    var icon: String {
-        switch self {
-        case .general:      return "gearshape"
-        case .shortcuts:    return "keyboard"
-        case .hotkeys:      return "command.square"
-        case .applications: return "app.dashed"
-        case .mouse:        return "computermouse"
-        case .system:       return "wrench.and.screwdriver"
-        }
-    }
-}
-
 struct SettingsWindow: View {
-    @ObservedObject var configStore: ConfigStore
-    var onApplyConfiguredMouseSpeed: (() -> Void)?
-    var onForceRestore: (() -> Void)?
-    var onResetAllSavedData: (() -> Void)?
-    var onHotkeysChanged: (() -> Void)?
+    @Bindable var store: StoreOf<AppSettings>
 
-    @State private var selectedSection: SettingsSection = .general
+    private var selectedSection: SettingsSection { store.selectedSection }
 
-    private var appVersion: String {
-        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+    private var sidebarSelection: Binding<SettingsSection?> {
+        Binding(get: { store.selectedSection }, set: { store.send(.sectionSelected($0)) })
     }
 
     var body: some View {
         NavigationSplitView {
-            List(selection: $selectedSection) {
-                ForEach(SettingsSection.allCases) { section in
+            List(selection: sidebarSelection) {
+                ForEach(SettingsSection.availableCases) { section in
                     Label(section.title, systemImage: section.icon)
                         .tag(section)
-                }
-
-                Section {
-                    Text("v\(appVersion)")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
+                        .padding(.vertical, 3)
                 }
             }
-            .navigationSplitViewColumnWidth(min: 160, ideal: 180, max: 220)
+            .listStyle(.sidebar)
+            .navigationSplitViewColumnWidth(min: 175, ideal: 195, max: 240)
+            .safeAreaInset(edge: .bottom) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("GameMode")
+                        .fontWeight(.medium)
+                    Text("Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0")")
+                        .foregroundStyle(.secondary)
+                }
+                .font(.caption)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+            }
         } detail: {
             detailView(for: selectedSection)
+                .navigationTitle(selectedSection.title)
+                .disabled(selectedSection != .system && (store.configurationLoadError != nil || store.runtime.recoveryRequired || store.runtime.isTransitioning))
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    if selectedSection != .system, let message = store.configurationLoadError ?? (store.runtime.recoveryRequired ? (store.runtime.recoveryMessage ?? "Recovery must finish before Game Mode can start.") : nil) ?? store.persistenceError {
+                        HStack(alignment: .top, spacing: 10) {
+                            Image(systemName: "exclamationmark.triangle")
+                                .foregroundStyle(.orange)
+                            Text(message)
+                                .font(.callout)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Button("Review") { store.send(.sectionSelected(.system)) }
+                        }
+                        .padding()
+                        .background(.background)
+                    }
+                }
         }
+        .navigationSplitViewStyle(.balanced)
+        .frame(minWidth: 720, minHeight: 500)
+        .task { await store.send(.settingsOpened).finish() }
     }
 
     @ViewBuilder
     private func detailView(for section: SettingsSection) -> some View {
         switch section {
         case .general:
-            GeneralSettingsView(configStore: configStore)
+            GeneralSettingsView(store: store)
         case .shortcuts:
-            ShortcutsSettingsView(configStore: configStore)
+            ShortcutsSettingsView(store: store)
         case .hotkeys:
-            HotkeysSettingsView(configStore: configStore, onHotkeysChanged: onHotkeysChanged)
+            HotkeysSettingsView(store: store)
         case .applications:
-            AppsSettingsView(configStore: configStore)
+            AppsSettingsView(store: store)
         case .mouse:
-            MouseSettingsView(
-                configStore: configStore,
-                onApplyConfiguredMouseSpeed: onApplyConfiguredMouseSpeed
-            )
+            MouseSettingsView(store: store)
+        case .display:
+            #if FEATURE_DISPLAYS
+            DisplaySettingsView(store: store)
+            #else
+            GeneralSettingsView(store: store)
+            #endif
         case .system:
-            SystemSettingsView(
-                configStore: configStore,
-                onForceRestore: onForceRestore,
-                onResetAllSavedData: onResetAllSavedData
-            )
+            SystemSettingsView(store: store)
         }
     }
 }

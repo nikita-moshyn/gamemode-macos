@@ -14,11 +14,32 @@ struct MonitoredApp: Codable, Identifiable, Hashable {
     var name: String
     var isEnabled: Bool
     var source: AppSource
+    /// When true, the refresh rate lock overlay activates for this app (requires display master switch).
+    var lockRefreshRate: Bool
 
     enum AppSource: String, Codable {
         case preset     // built-in (GeForce Now, Steam pattern, etc.)
         case detected   // found by scanning /Applications + category check
         case manual     // user-added
+    }
+
+    init(id: UUID, bundleID: String, name: String, isEnabled: Bool, source: AppSource, lockRefreshRate: Bool = false) {
+        self.id = id
+        self.bundleID = bundleID
+        self.name = name
+        self.isEnabled = isEnabled
+        self.source = source
+        self.lockRefreshRate = lockRefreshRate
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        bundleID = try container.decode(String.self, forKey: .bundleID)
+        name = try container.decode(String.self, forKey: .name)
+        isEnabled = try container.decode(Bool.self, forKey: .isEnabled)
+        source = try container.decode(AppSource.self, forKey: .source)
+        lockRefreshRate = try container.decodeIfPresent(Bool.self, forKey: .lockRefreshRate) ?? false
     }
 
     /// Whether this entry uses prefix matching (bundle ID ends with `.*`).
@@ -45,7 +66,8 @@ extension MonitoredApp {
             bundleID: "com.nvidia.gfnpc.mall",
             name: "GeForce Now",
             isEnabled: true,
-            source: .preset
+            source: .preset,
+            lockRefreshRate: true
         ),
         MonitoredApp(
             id: UUID(uuidString: "00000000-0001-0000-0000-000000000002")!,

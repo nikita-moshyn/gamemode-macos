@@ -1,0 +1,13 @@
+// Stable is the default for local/Xcode builds. CI explicitly selects the channel.
+GAMEMODE_CHANNEL = stable
+// Add beta feature conditions here; Debug and beta Release builds share this list.
+GAMEMODE_BETA_FEATURES = FEATURE_DISPLAYS
+GAMEMODE_FLAGS_stable =
+GAMEMODE_FLAGS_rc =
+GAMEMODE_FLAGS_beta = GAMEMODE_BETA $(GAMEMODE_BETA_FEATURES)
+
+// CI clears this setting to test the selected channel's shipped feature set.
+GAMEMODE_DEBUG_FEATURES =
+GAMEMODE_DEBUG_FEATURES[config=Debug] = $(GAMEMODE_BETA_FEATURES)
+GAMEMODE_FEATURE_FLAGS = $(GAMEMODE_FLAGS_$(GAMEMODE_CHANNEL)) $(GAMEMODE_DEBUG_FEATURES)
+SWIFT_ACTIVE_COMPILATION_CONDITIONS = $(inherited) $(GAMEMODE_FEATURE_FLAGS)

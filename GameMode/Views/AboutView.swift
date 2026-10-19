@@ -2,8 +2,8 @@
 //  AboutView.swift
 //  GameMode
 //
-//  Created by Nikita Moshyn on 16/03/2026.
-//  Copyright © 2025 Nikita Moshyn. All rights reserved.
+//  Created by Nikita Moshyn on 11/10/2026.
+//  Copyright © 2026 Nikita Moshyn. All rights reserved.
 //
 
 import SwiftUI
@@ -18,38 +18,39 @@ struct AboutView: View {
     }
 
     var body: some View {
-        VStack(spacing: 16) {
-            Spacer()
-
+        VStack(spacing: 0) {
             Image(nsImage: NSApp.applicationIconImage)
                 .resizable()
-                .frame(width: 96, height: 96)
+                .frame(width: 64, height: 64)
+                .accessibilityHidden(true)
+                .padding(.bottom, 10)
 
             Text("GameMode")
-                .font(.title)
-                .fontWeight(.bold)
+                .font(.system(size: 15, weight: .semibold))
+                .padding(.bottom, 6)
 
             Text("Version \(appVersion) (\(buildNumber))")
-                .font(.callout)
+                .font(.system(size: 11))
                 .foregroundStyle(.secondary)
+                .padding(.bottom, 10)
 
-            Text("Copyright © 2025 Nikita Moshyn.\nAll rights reserved.")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-                .multilineTextAlignment(.center)
+            Text("GameMode prepares your Mac for gaming by blocking accidental shortcuts, applying your mouse preset, and restoring your everyday settings when you’re done.")
+                .font(.system(size: 12))
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.bottom, 10)
 
-            Divider()
-                .frame(width: 200)
-
-            Text("Released under the MIT License")
-                .font(.caption)
+            Text("© 2026 Nikita Moshyn")
+                .font(.system(size: 11))
                 .foregroundStyle(.secondary)
+                .padding(.bottom, 8)
 
-            Link("GitHub Repository", destination: URL(string: "https://github.com/user/GameMode")!)
-                .font(.caption)
-
-            Spacer()
+            Link("GitHub Repository", destination: URL(string: "https://github.com/nikita-moshyn/gamemode-macos")!)
+                .font(.system(size: 11))
         }
-        .frame(width: 300, height: 340)
+        .multilineTextAlignment(.center)
+        .padding(.horizontal, 22)
+        .padding(.top, 8)
+        .padding(.bottom, 20)
+        .frame(width: 300)
     }
 }

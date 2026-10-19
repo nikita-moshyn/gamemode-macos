@@ -2,69 +2,71 @@
 //  MouseSettingsView.swift
 //  GameMode
 //
-//  Created by Nikita Moshyn on 15/03/2026.
+//  Created by Nikita Moshyn on 12/10/2026.
 //  Copyright © 2026 Nikita Moshyn. All rights reserved.
 //
 
+import ComposableArchitecture
 import SwiftUI
 
 struct MouseSettingsView: View {
-    @ObservedObject var configStore: ConfigStore
-    var onApplyConfiguredMouseSpeed: (() -> Void)?
+    @Bindable var store: StoreOf<AppSettings>
+
+    private var canApplyProfile: Bool {
+        store.config.mouse.isEnabled && store.runtime.isGamingMode
+            && !store.runtime.isTransitioning && !store.runtime.recoveryRequired
+            && store.configurationLoadError == nil
+    }
 
     var body: some View {
         Form {
             Section {
-                Toggle("Enable mouse sensitivity management", isOn: $configStore.config.mouse.isEnabled)
+                Toggle("Enable Mouse Preset", isOn: $store.config.mouse.isEnabled)
             } footer: {
-                Text("When disabled, GameMode will never touch your mouse settings. The menu bar toggle is also hidden.")
-                    .foregroundStyle(.secondary)
+                Text("Use a different tracking speed during Game Mode. This preset applies to all mice connected to your Mac.")
             }
 
             Section {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text("Gaming Speed")
-                        Spacer()
-                        Text(String(format: "%.1f", configStore.config.mouse.gamingSpeed))
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                    }
-                    Slider(value: $configStore.config.mouse.gamingSpeed, in: 0...5, step: 0.1)
+                LabeledContent("Tracking speed") {
+                    Text(store.config.mouse.gamingSpeed, format: .number.precision(.fractionLength(1)))
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
                 }
+                Slider(value: $store.config.mouse.gamingSpeed, in: 0...5, step: 0.1) {
+                    Text("Gaming tracking speed")
+                } minimumValueLabel: {
+                    Text("Slow")
+                } maximumValueLabel: {
+                    Text("Fast")
+                }
+                .accessibilityValue(String(format: "%.1f", store.config.mouse.gamingSpeed))
 
-                Button("Apply Configured Speed Live") {
-                    onApplyConfiguredMouseSpeed?()
+                Button("Apply Preset") { store.send(.applyMouse) }
+                    .disabled(!canApplyProfile)
+                if store.config.mouse.isEnabled && !store.runtime.isGamingMode {
+                    Text("Turn on Game Mode to apply this preset.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
                 }
             } header: {
-                Text("Speed Settings")
+                Text("Preset Settings")
+            } footer: {
+                Text("Your normal tracking speed is saved before applying the preset and restored when the preset or Game Mode turns off.")
             }
-            footer: {
-                Text("Applies the configured gaming speed immediately through HIDSystem without writing a persistent mouse preference.")
-                    .foregroundStyle(.secondary)
-            }
-            .disabled(!configStore.config.mouse.isEnabled)
+            .disabled(!store.config.mouse.isEnabled)
 
             Section {
-                Toggle(
-                    "Enable mouse boost automatically when Game Mode activates",
-                    isOn: $configStore.config.mouse.isMouseBoostEnabled
-                )
-
-                if let baseline = configStore.sessionMouseBaselineSpeed {
-                    Text("Last detected baseline speed: \(String(format: "%.1f", baseline))")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("Baseline speed is detected automatically when mouse boost turns on.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                Toggle("Apply automatically with Game Mode", isOn: $store.config.mouse.isMouseBoostEnabled)
+                LabeledContent("Currently applied", value: store.runtime.isMouseBoostApplied ? "Yes" : "No")
+                if let baseline = store.runtime.sessionMouseBaselineSpeed {
+                    LabeledContent("Saved normal speed", value: String(format: "%.1f", baseline))
                 }
+            } header: {
+                Text("Activation")
             } footer: {
-                Text("Mouse boost can only become active while Game Mode is active. The app always detects your current mouse speed right before applying boost.")
-                    .foregroundStyle(.secondary)
+                Text("You can also switch the Mouse Preset on or off from the menu bar while Game Mode is enabled.")
             }
-            .disabled(!configStore.config.mouse.isEnabled)
+            .disabled(!store.config.mouse.isEnabled)
         }
         .formStyle(.grouped)
     }

@@ -20,3 +20,8 @@ DerivedData/
 
 # Claude
 .claude/
+AGENTS.md
+CLAUDE.md
+
+# Release tooling
+__pycache__/

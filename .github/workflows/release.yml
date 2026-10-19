@@ -1,184 +1,212 @@
 name: Release
+run-name: '${{ inputs.channel }} ${{ inputs.version }} — publish=${{ inputs.publish }}'
 
 on:
-  push:
-    tags:
-      - '[0-9]+.[0-9]+.[0-9]+'
-      - 'v[0-9]+.[0-9]+.[0-9]+'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Base version (X.Y.Z, for example 0.2.0)'
+        required: true
+        type: string
+      channel:
+        description: Release channel
+        required: true
+        type: choice
+        options: [beta, stable]
+        default: beta
+      number:
+        description: 'Beta number (ignored for stable)'
+        type: string
+        default: '1'
+      source_commit:
+        description: 'Full 40-character source commit SHA already merged into main'
+        required: true
+        type: string
+      publish:
+        description: 'Publish GitHub release, tag, and Sparkle update'
+        type: boolean
+        default: false
 
 permissions:
-  contents: write
+  contents: read
+  actions: read
+
+# Serialize tag/release/feed changes, including retries, without cancelling a publisher.
+concurrency:
+  group: gamemode-release
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
-  build-and-release:
-    runs-on: macos-15
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
+      build_version: ${{ steps.meta.outputs.build_version }}
+      channel: ${{ steps.meta.outputs.channel }}
+      commit: ${{ steps.meta.outputs.commit }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Require owner and trusted workflow branch
+        env:
+          ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          OWNER: ${{ github.repository_owner }}
+          WORKFLOW_REF: ${{ github.ref }}
+        run: |
+          if [[ "$ACTOR" != "$OWNER" || "$TRIGGERING_ACTOR" != "$OWNER" || "$WORKFLOW_REF" != refs/heads/main ]]; then
+            echo '::error::Run releases as the repository owner from the main workflow branch. Select source code with source_commit.'
+            exit 1
+          fi
+      - uses: actions/checkout@v5
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
-
-      - name: Extract version from tag
-        id: version
+          persist-credentials: false
+      - name: Validate immutable source and release inputs
+        id: meta
         env:
-          TAG_REF: ${{ github.ref }}
+          VERSION: ${{ inputs.version }}
+          CHANNEL: ${{ inputs.channel }}
+          NUMBER: ${{ inputs.number }}
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
         run: |
-          TAG="${TAG_REF#refs/tags/}"
-          VERSION="${TAG#v}"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "Version: $VERSION (tag: $TAG)"
+          python3 scripts/release.py prepare --version "$VERSION" --channel "$CHANNEL" \
+            --number "$NUMBER" --commit "$SOURCE_COMMIT" --github-output "$GITHUB_OUTPUT"
 
-      - name: Build Release
-        env:
-          BUILD_VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          xcodebuild \
-            -project GameMode.xcodeproj \
-            -scheme GameMode \
-            -configuration Release \
-            -derivedDataPath build/DerivedData \
-            CODE_SIGN_IDENTITY="-" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO \
-            DEVELOPMENT_TEAM="" \
-            MARKETING_VERSION="$BUILD_VERSION" \
-            CURRENT_PROJECT_VERSION="$BUILD_VERSION" \
-            build
-
-      - name: Package app
-        id: package
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          APP_PATH=$(find build/DerivedData -name "GameMode.app" -type d | head -1)
-
-          if [ -z "$APP_PATH" ]; then
-            echo "ERROR: GameMode.app not found in build output"
-            exit 1
-          fi
-
-          cp -R "$APP_PATH" build/GameMode.app
-          codesign --force --deep --sign - build/GameMode.app
-
-          cd build
-          ditto -c -k --keepParent GameMode.app "GameMode-${VERSION}.zip"
-
-          echo "zip_path=build/GameMode-${VERSION}.zip" >> "$GITHUB_OUTPUT"
-          echo "Packaged: build/GameMode-${VERSION}.zip"
-
-      - name: Sign with Sparkle EdDSA
-        id: sparkle_sign
-        env:
-          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          ZIP="build/GameMode-${VERSION}.zip"
-
-          SIGN_TOOL="build/DerivedData/SourcePackages/artifacts/sparkle/Sparkle/bin/sign_update"
-          if [ ! -f "$SIGN_TOOL" ]; then
-            echo "ERROR: sign_update not found at $SIGN_TOOL"
-            find build/DerivedData/SourcePackages -name "sign_update" -type f 2>/dev/null
-            exit 1
-          fi
-          chmod +x "$SIGN_TOOL"
-
-          SIGNATURE=$(echo "$SPARKLE_PRIVATE_KEY" | "$SIGN_TOOL" "$ZIP" -f -)
-
-          echo "Raw signature output: $SIGNATURE"
-
-          ED_SIG=$(echo "$SIGNATURE" | grep -o 'sparkle:edSignature="[^"]*"' | cut -d'"' -f2)
-          LENGTH=$(echo "$SIGNATURE" | grep -o 'length="[^"]*"' | cut -d'"' -f2)
-
-          if [ -z "$ED_SIG" ]; then
-            echo "ERROR: Failed to parse edSignature"
-            exit 1
-          fi
-
-          echo "signature=$ED_SIG" >> "$GITHUB_OUTPUT"
-          echo "length=$LENGTH" >> "$GITHUB_OUTPUT"
-          echo "EdDSA signature: $ED_SIG (length: $LENGTH)"
-
-      - name: Generate appcast.xml
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-          TAG: ${{ steps.version.outputs.tag }}
-          ED_SIG: ${{ steps.sparkle_sign.outputs.signature }}
-          LENGTH: ${{ steps.sparkle_sign.outputs.length }}
-        run: |
-          DOWNLOAD_URL="https://github.com/nikita-moshyn/gamemode-macos/releases/download/${TAG}/GameMode-${VERSION}.zip"
-          PUB_DATE=$(date -u "+%a, %d %b %Y %H:%M:%S +0000")
-
-          # Build the new item block
-          read -r -d '' NEW_ITEM << ITEM_EOF || true
-          <item>
-                  <title>Version ${VERSION}</title>
-                  <sparkle:version>${VERSION}</sparkle:version>
-                  <pubDate>${PUB_DATE}</pubDate>
-                  <enclosure url="${DOWNLOAD_URL}" length="${LENGTH}" type="application/octet-stream" sparkle:edSignature="${ED_SIG}" />
-                  <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-              </item>
-          ITEM_EOF
-
-          if [ -f appcast.xml ]; then
-            # Insert new item after <language>en</language> line
-            awk -v item="$NEW_ITEM" '
-              /<language>en<\/language>/ { print; print "        " item; next }
-              { print }
-            ' appcast.xml > appcast_tmp.xml
-            mv appcast_tmp.xml appcast.xml
-          else
-            cat > appcast.xml << EOF
-          <?xml version="1.0" encoding="utf-8"?>
-          <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
-              <channel>
-                  <title>GameMode Changelog</title>
-                  <description>Most recent changes with links to updates.</description>
-                  <language>en</language>
-                  ${NEW_ITEM}
-              </channel>
-          </rss>
-          EOF
-          fi
-
-          echo "--- appcast.xml ---"
-          cat appcast.xml
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-          TAG: ${{ steps.version.outputs.tag }}
+  build:
+    if: github.actor == github.repository_owner && github.triggering_actor == github.repository_owner && github.ref == 'refs/heads/main'
+    needs: prepare
+    runs-on: xcode-27
+    environment: release
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+      SOURCE_COMMIT: ${{ needs.prepare.outputs.commit }}
+    steps:
+      - name: Checkout release tools from the workflow commit
+        uses: actions/checkout@v5
         with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          name: GameMode ${{ steps.version.outputs.version }}
-          body: |
-            ## GameMode ${{ steps.version.outputs.version }}
-
-            Download the zip, unzip, and drag GameMode.app to Applications.
-
-            **Note:** This build is ad-hoc signed. On first launch, right-click > Open to bypass Gatekeeper.
-          files: |
-            build/GameMode-${{ steps.version.outputs.version }}.zip
-          draft: false
-          prerelease: false
-
-      - name: Commit appcast.xml to main
+          ref: ${{ github.sha }}
+          path: release-tools
+          persist-credentials: false
+      - name: Clear staging files left by an earlier runner job
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          # Stash the generated appcast
-          cp appcast.xml /tmp/appcast.xml
-
-          git fetch origin main
-          git checkout main
-
-          cp /tmp/appcast.xml appcast.xml
-          git add appcast.xml
-          git diff --cached --quiet && echo "No appcast changes to commit" && exit 0
-
-          git commit -m "chore: update appcast.xml for ${VERSION}"
-          git push origin main
+          rm -rf "$GITHUB_WORKSPACE/delivery"
+          mkdir -p "$GITHUB_WORKSPACE/delivery"
+      - name: Find an existing verified build
+        id: restore
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 release-tools/scripts/release_delivery.py restore --directory delivery \
+            --tag "$TAG" --commit "$SOURCE_COMMIT" --run-id "$GITHUB_RUN_ID" --github-output "$GITHUB_OUTPUT"
+      - name: Restore this run's immutable artifact
+        if: steps.restore.outputs.artifact_exists == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: release-${{ github.run_id }}
+          path: delivery
+      - name: Checkout the exact source commit
+        if: steps.restore.outputs.restored != 'true'
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
+          path: source
+          persist-credentials: false
+      - name: Test, build, sign, and notarize
+        if: steps.restore.outputs.restored != 'true'
+        working-directory: source
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          BUILD_VERSION: ${{ needs.prepare.outputs.build_version }}
+          CHANNEL: ${{ needs.prepare.outputs.channel }}
+          CERTIFICATE_P12: ${{ secrets.DEVELOPER_ID_CERT_P12 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_CERT_PASSWORD }}
+          APPLE_ID: ${{ secrets.NOTARIZATION_APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.NOTARIZATION_PASSWORD }}
+          TEAM_ID: ${{ secrets.NOTARIZATION_TEAM_ID }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          export RELEASE_TOOLS="$GITHUB_WORKSPACE/release-tools"
+          export RELEASE_DIRECTORY="$GITHUB_WORKSPACE/delivery"
+          bash "$RELEASE_TOOLS/scripts/build_release.sh"
+      - name: Verify release identity and archive
+        run: |
+          python3 release-tools/scripts/release_delivery.py verify --directory delivery --tag "$TAG" --commit "$SOURCE_COMMIT"
+      - name: Save the completed release for retries and downloads
+        if: steps.restore.outputs.artifact_exists != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ github.run_id }}
+          path: |
+            delivery/*.zip
+            delivery/release.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+      - name: Summarize build
+        env:
+          PUBLISH: ${{ inputs.publish }}
+        run: |
+          {
+            echo "### $TAG"
+            echo "Source: $SOURCE_COMMIT"
+            echo "Artifact: release-$GITHUB_RUN_ID (archive and release.json)"
+            echo "Publish requested: $PUBLISH"
+            echo 'Reruns reuse the saved archive. A new run with the same published version verifies and reuses its release assets.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  publish:
+    if: inputs.publish && github.actor == github.repository_owner && github.triggering_actor == github.repository_owner && github.ref == 'refs/heads/main'
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    environment: release
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+      SOURCE_COMMIT: ${{ needs.prepare.outputs.commit }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-${{ github.run_id }}
+          path: delivery
+      - name: Publish or resume the exact release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PUBLISH_TOKEN }}
+        run: |
+          test -n "$GH_TOKEN" || { echo '::error::Configure RELEASE_PUBLISH_TOKEN in the release environment'; exit 1; }
+          python3 scripts/release_delivery.py publish --directory delivery --tag "$TAG" --commit "$SOURCE_COMMIT"
+
+  feed:
+    if: github.actor == github.repository_owner && github.triggering_actor == github.repository_owner && github.ref == 'refs/heads/main'
+    needs: [prepare, publish]
+    runs-on: ubuntu-latest
+    environment: release
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+      SOURCE_COMMIT: ${{ needs.prepare.outputs.commit }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_PUBLISH_TOKEN }}
+      - name: Verify the published archive before advertising it
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PUBLISH_TOKEN }}
+        run: |
+          python3 scripts/release_delivery.py download --directory delivery \
+            --tag "$TAG" --commit "$SOURCE_COMMIT" --github-output "$GITHUB_OUTPUT"
+      - name: Publish update feed
+        env:
+          ED_SIG: ${{ steps.release.outputs.signature }}
+          LENGTH: ${{ steps.release.outputs.length }}
+        run: bash scripts/publish_appcast.sh

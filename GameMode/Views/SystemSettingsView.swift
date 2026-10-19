@@ -2,104 +2,159 @@
 //  SystemSettingsView.swift
 //  GameMode
 //
-//  Created by Nikita Moshyn on 15/03/2026.
+//  Created by Nikita Moshyn on 12/10/2026.
 //  Copyright © 2026 Nikita Moshyn. All rights reserved.
 //
 
+import ComposableArchitecture
 import SwiftUI
 
 struct SystemSettingsView: View {
-    @ObservedObject var configStore: ConfigStore
-    var onForceRestore: (() -> Void)?
-    var onResetAllSavedData: (() -> Void)?
+    @Bindable var store: StoreOf<AppSettings>
+
+    private var settingsLocked: Bool {
+        store.runtime.isTransitioning || store.runtime.recoveryRequired || store.configurationLoadError != nil
+    }
+
+    private var modeStatus: String {
+        if store.runtime.recoveryRequired { return "Recovery required" }
+        if store.runtime.isTransitioning { return "Updating settings…" }
+        return store.runtime.isGamingMode ? "Enabled" : "Disabled"
+    }
 
     var body: some View {
         Form {
-            Section("Accessibility Permission") {
-                HStack(spacing: 8) {
-                    Circle()
-                        .fill(configStore.isAccessibilityGranted ? Color.green : Color.red)
-                        .frame(width: 8, height: 8)
-                    Text(configStore.isAccessibilityGranted ? "Granted" : "Not Granted")
-                        .foregroundStyle(configStore.isAccessibilityGranted ? .green : .red)
-                }
-
-                if !configStore.isAccessibilityGranted {
-                    Text("Accessibility access is required for global hotkeys and gesture control.")
-                        .font(.callout)
+            if let error = store.persistenceError {
+                Section("Changes Not Saved") {
+                    Label(error, systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.orange)
+                        .textSelection(.enabled)
+                    Text("Your last saved preferences are still in use. Try the change again.")
                         .foregroundStyle(.secondary)
+                }
+            }
+            if let error = store.configurationLoadError {
+                Section("Configuration Needs Attention") {
+                    Label(error, systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.orange)
+                        .textSelection(.enabled)
+                    Text("Your saved configuration has been preserved. Resolve the problem before changing preferences, or reset your saved configuration below.")
+                        .foregroundStyle(.secondary)
+                }
+            }
 
-                    HStack(spacing: 12) {
-                        Button("Request Permission") {
-                            HotkeyManager.requestAccessibilityPermission()
+            Section("Engine") {
+                LabeledContent("Game Mode", value: modeStatus)
+                LabeledContent("Configuration", value: store.configurationLoadError == nil ? "Loaded" : "Needs attention")
+            }
+
+            Section {
+                LabeledContent("Accessibility", value: store.runtime.isAccessibilityGranted ? "Granted" : "Not granted")
+                if !store.runtime.isAccessibilityGranted {
+                    ViewThatFits(in: .horizontal) {
+                        HStack {
+                            permissionButton
+                            accessibilitySettingsButton
                         }
-
-                        Button("Open System Settings") {
-                            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-                                NSWorkspace.shared.open(url)
-                            }
+                        VStack(alignment: .leading) {
+                            permissionButton
+                            accessibilitySettingsButton
                         }
                     }
+                }
+            } header: {
+                Text("Permissions")
+            } footer: {
+                Text("Accessibility access allows Input Guard and global hotkeys to work while another app is focused.")
+            }
+
+            Section {
+                if store.runtime.recoveryRequired || store.runtime.recoveryMessage != nil {
+                    Label(store.runtime.recoveryMessage ?? "Recovery must finish before Game Mode can start.", systemImage: store.runtime.recoveryRequired ? "exclamationmark.triangle" : "checkmark.circle")
+                        .foregroundStyle(store.runtime.recoveryRequired ? Color.orange : Color.secondary)
+                        .textSelection(.enabled)
                 } else {
-                    Text("GameMode can monitor global hotkeys and control system gestures.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
+                    LabeledContent("Status", value: "No recovery required")
                 }
-            }
-
-            Section {
-                Toggle("Restore settings on shutdown / restart",
-                       isOn: $configStore.config.system.restoreOnShutdown)
-            } header: {
-                Text("Shutdown Protection")
-            } footer: {
-                Text("Deactivates gaming mode before macOS shuts down, so your system starts clean.")
-                    .foregroundStyle(.secondary)
-            }
-
-            Section {
-                Toggle("Auto-restore on launch",
-                       isOn: $configStore.config.system.restoreOnLaunch)
-            } header: {
-                Text("Crash Recovery")
-            } footer: {
-                Text("If the app was killed while gaming mode was active, restore all settings on next launch.")
-                    .foregroundStyle(.secondary)
-            }
-
-            Section("State") {
-                LabeledContent("Gaming mode") {
-                    Text(configStore.isGamingMode ? "Active" : (StateJournal.hasDirtyState ? "Active (stale)" : "Inactive"))
-                        .foregroundStyle(configStore.isGamingMode ? .green : (StateJournal.hasDirtyState ? .orange : .secondary))
+                if store.runtime.recoveryRequired {
+                    Button("Retry Recovery") { store.send(.retryRecovery) }
+                        .disabled(store.runtime.isTransitioning)
+                    Button("Use Current Settings as Normal…", role: .destructive) {
+                        store.send(.confirmationRequested(.acceptCurrentSettings))
+                    }
+                    .disabled(store.runtime.isTransitioning)
+                } else {
+                    Button("Restore Saved Settings") { store.send(.retryRecovery) }
+                        .disabled(store.runtime.isTransitioning)
                 }
 
-                LabeledContent("State file") {
-                    Text("~/Library/Application Support/GameMode/state.json")
+                Group {
+                    Toggle("Restore before shutdown or restart", isOn: $store.config.system.restoreOnShutdown)
+                    Toggle("Recover interrupted sessions on launch", isOn: $store.config.system.restoreOnLaunch)
+                }
+                .disabled(settingsLocked)
+
+                DisclosureGroup("Recovery Details") {
+                    Text("Recovery journal")
+                    Text("~/Library/Application Support/GameMode/manifest.json")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
                 }
+            } header: {
+                Text("Recovery")
+            } footer: {
+                Text("GameMode saves your normal settings before applying changes. After an interrupted session, recovery uses those saved values before a new session can begin.")
             }
 
-            Section {
-                Button("Force Restore All Settings", role: .destructive) {
-                    onForceRestore?()
-                }
-            } footer: {
-                Text("Emergency button: reads the state journal and restores every setting to pre-gaming values.")
-                    .foregroundStyle(.secondary)
-            }
+            DiagnosticsSettingsSection(store: store)
 
             Section {
-                Button("Reset All Saved Data", role: .destructive) {
-                    onResetAllSavedData?()
-                }
+                Button("Reset Saved Configuration…", role: .destructive) { store.send(.confirmationRequested(.resetConfiguration)) }
+                    .disabled(store.runtime.isTransitioning || store.runtime.recoveryRequired || store.runtime.isGamingMode)
+            } header: {
+                Text("Advanced")
             } footer: {
-                Text("Deletes the saved app configuration and crash-recovery journal, then returns GameMode to its default state.")
-                    .foregroundStyle(.secondary)
+                Text("Returns application preferences to their defaults. Turn off Game Mode and finish recovery before resetting.")
             }
         }
         .formStyle(.grouped)
+        .alert("Use current settings as normal?", isPresented: confirmationBinding(.acceptCurrentSettings)) {
+            Button("Cancel", role: .cancel) {}
+            Button("Use Current Settings", role: .destructive) {
+                guard store.canAcceptCurrentSettings else { return }
+                store.send(.confirmationDismissed(.acceptCurrentSettings))
+                store.send(.acceptCurrentSettings)
+            }
+        } message: {
+            Text("First set your preferred normal keyboard, mouse, and system settings in macOS. This accepts the current settings as your normal configuration and ends recovery. The previous saved values will no longer be used for automatic recovery.")
+        }
+        .alert("Reset saved configuration?", isPresented: confirmationBinding(.resetConfiguration)) {
+            Button("Cancel", role: .cancel) {}
+            Button("Reset Configuration", role: .destructive) {
+                guard store.canResetConfiguration else { return }
+                store.send(.confirmationDismissed(.resetConfiguration))
+                store.send(.resetConfiguration)
+            }
+        } message: {
+            Text("This resets monitored applications, shortcuts, presets, and other GameMode preferences. Your current macOS settings will not be changed.")
+        }
+    }
+
+    private func confirmationBinding(_ confirmation: AppSettings.Confirmation) -> Binding<Bool> {
+        Binding(get: { store.confirmation == confirmation }, set: { if !$0 { store.send(.confirmationDismissed(confirmation)) } })
+    }
+
+    private var permissionButton: some View {
+        Button("Request Permission") {
+            store.send(.command(.requestAccessibility))
+        }
+    }
+
+    private var accessibilitySettingsButton: some View {
+        Button("Open System Settings") {
+            store.send(.command(.accessibilitySettings))
+        }
     }
 }

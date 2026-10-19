@@ -88,7 +88,7 @@ class AppDetector {
             }
         }
 
-        print("[AppDetector] Found \(results.count) game(s)")
+        Log.info("Found \(results.count) game(s)", category: "AppDetector")
         return results
     }
 
@@ -125,7 +125,7 @@ class AppDetector {
               ) as? [String: Any],
               let hotkeys = plist["AppleSymbolicHotKeys"] as? [String: Any]
         else {
-            print("[AppDetector] Could not read symbolichotkeys plist")
+            Log.error("Could not read symbolichotkeys plist", category: "AppDetector")
             return ShortcutEntry.defaults
         }
 
@@ -141,7 +141,7 @@ class AppDetector {
             }
         }
 
-        print("[AppDetector] Found \(result.count) keyboard shortcuts in plist")
+        Log.info("Found \(result.count) keyboard shortcuts in plist", category: "AppDetector")
         return result
     }
 }

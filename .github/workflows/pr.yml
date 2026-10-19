@@ -2,43 +2,71 @@ name: PR Check
 
 on:
   pull_request:
-    branches: [main, develop]
+    branches: [main]
 
 concurrency:
-  group: pr-${{ github.head_ref }}
+  group: checks-${{ github.event_name }}-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  build:
-    runs-on: macos-15
+  build-and-test:
+    name: build-${{ matrix.channel }}
+    strategy:
+      fail-fast: false
+      matrix:
+        channel: [stable, beta]
+    env:
+      GAMEMODE_CHANNEL: ${{ matrix.channel }}
+    # The pinned TCA packages require Swift 6.4 (Xcode 27).
+    runs-on: xcode-27
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
-      - name: Build
+      - name: Validate release tooling
+        if: matrix.channel == 'stable'
+        run: |
+          python3 -m unittest discover -s scripts -p 'test_*.py'
+          python3 scripts/release.py validate-appcast appcast.xml
+
+      - name: Build Release
         run: |
           xcodebuild \
             -project GameMode.xcodeproj \
             -scheme GameMode \
-            -configuration Debug \
+            -configuration Release \
             -derivedDataPath build/DerivedData \
+            -destination 'platform=macOS' \
+            -onlyUsePackageVersionsFromResolvedFile \
+            -skipMacroValidation \
+            GAMEMODE_CHANNEL="$GAMEMODE_CHANNEL" \
             CODE_SIGN_IDENTITY="-" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO \
             DEVELOPMENT_TEAM="" \
             build
 
       - name: Run tests
-        continue-on-error: true
         run: |
-          # Run tests if a test target exists, skip gracefully otherwise
           xcodebuild \
             -project GameMode.xcodeproj \
             -scheme GameMode \
             -configuration Debug \
             -derivedDataPath build/DerivedData \
+            -destination 'platform=macOS' \
+            -onlyUsePackageVersionsFromResolvedFile \
+            -skipMacroValidation \
+            GAMEMODE_CHANNEL="$GAMEMODE_CHANNEL" \
+            GAMEMODE_DEBUG_FEATURES= \
             CODE_SIGN_IDENTITY="-" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO \
             DEVELOPMENT_TEAM="" \
-            test 2>&1 || echo "No test targets found — skipping"
+            test
+
+  required-check:
+    name: build
+    if: always()
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require both feature configurations
+        env:
+          RESULT: ${{ needs.build-and-test.result }}
+        run: test "$RESULT" = success

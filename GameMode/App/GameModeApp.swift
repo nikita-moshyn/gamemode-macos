@@ -2,7 +2,7 @@
 //  GameModeApp.swift
 //  GameMode
 //
-//  Created by Nikita Moshyn on 15/03/2026.
+//  Created by Nikita Moshyn on 10/10/2026.
 //  Copyright © 2026 Nikita Moshyn. All rights reserved.
 //
 
@@ -15,6 +15,15 @@ struct GameModeApp: App {
     var body: some Scene {
         Settings {
             EmptyView()
+        }
+        .commands {
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings…") { appDelegate.openSettings() }
+                    .keyboardShortcut(",", modifiers: .command)
+            }
+            CommandGroup(replacing: .appInfo) {
+                Button("About GameMode") { appDelegate.openAbout() }
+            }
         }
     }
 }

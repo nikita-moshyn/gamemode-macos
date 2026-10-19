@@ -2,168 +2,113 @@
 //  AppPickerSheet.swift
 //  GameMode
 //
-//  Created by Nikita Moshyn on 15/03/2026.
+//  Created by Nikita Moshyn on 12/10/2026.
 //  Copyright © 2026 Nikita Moshyn. All rights reserved.
 //
 
+import ComposableArchitecture
 import SwiftUI
 import AppKit
 
 struct AppPickerSheet: View {
-    @ObservedObject var configStore: ConfigStore
-    @Binding var isPresented: Bool
-    @State private var manualBundleID = ""
+    @Bindable var store: StoreOf<ApplicationPicker>
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Add Application")
-                .font(.headline)
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Add Applications").font(.title2.weight(.semibold))
+                Text("Choose a running app, browse your Mac, or enter its bundle identifier.")
+                    .foregroundStyle(.secondary)
+            }
+            .padding(20)
 
-            // Running apps list
-            Text("Running Apps")
-                .font(.subheadline)
-                .fontWeight(.semibold)
-                .foregroundColor(.secondary)
+            Form {
+                Section("Running Applications") {
+                    if store.runningApps.isEmpty {
+                        Text("No running applications are available. Browse for an app below.")
+                            .foregroundStyle(.secondary)
+                    }
+                    ForEach(store.runningApps) { app in
+                        runningAppRow(app)
+                    }
+                }
 
-            ScrollView {
-                VStack(spacing: 4) {
-                    ForEach(runningApps, id: \.bundleIdentifier) { app in
-                        HStack {
-                            if let icon = app.icon {
-                                Image(nsImage: icon)
-                                    .resizable()
-                                    .frame(width: 20, height: 20)
-                            }
-                            Text(app.localizedName ?? app.bundleIdentifier ?? "Unknown")
-                            Spacer()
-                            Text(app.bundleIdentifier ?? "")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .lineLimit(1)
+                Section {
+                    Button("Browse for an Application…") { store.send(.browseButtonTapped) }
+                        .disabled(store.isBrowsing)
+                }
 
-                            if isAlreadyAdded(app) {
-                                Text("Added")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            } else {
-                                Button("Add") {
-                                    addRunningApp(app)
-                                }
-                                .controlSize(.small)
-                            }
-                        }
-                        .padding(.vertical, 2)
-                        .padding(.horizontal, 4)
+                Section {
+                    HStack(alignment: .firstTextBaseline) {
+                        TextField("Bundle identifier", text: $store.manualBundleID, prompt: Text("com.example.game"))
+                            .onSubmit { store.send(.manualAddButtonTapped) }
+                        Button("Add") { store.send(.manualAddButtonTapped) }
+                            .disabled(store.validationMessage != nil)
+                            .accessibilityLabel("Add application by bundle identifier")
+                    }
+                    if !store.manualBundleID.isEmpty, let validationMessage = store.validationMessage {
+                        Text(validationMessage)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } header: {
+                    Text("Add Manually")
+                } footer: {
+                    Text("Enter a bundle identifier, or end it with .* to match a group of applications.")
+                }
+
+                if let feedback = store.feedback {
+                    Section {
+                        Text(feedback)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
-            .frame(maxHeight: 200)
-
-            Divider()
-
-            // Browse for .app
-            HStack {
-                Button("Browse .app...") {
-                    browseForApp()
-                }
-            }
-
-            // Manual bundle ID
-            HStack {
-                TextField("Bundle ID", text: $manualBundleID)
-                    .textFieldStyle(.roundedBorder)
-
-                Button("Add") {
-                    addManualBundleID()
-                }
-                .disabled(manualBundleID.isEmpty)
-            }
+            .formStyle(.grouped)
 
             HStack {
                 Spacer()
-                Button("Cancel") {
-                    isPresented = false
+                Button("Done") { store.send(.doneButtonTapped) }
+                    .keyboardShortcut(.defaultAction)
+            }
+            .padding(20)
+        }
+        .frame(minWidth: 520, idealWidth: 580, maxWidth: 720, minHeight: 460, idealHeight: 560, maxHeight: 720)
+        .onExitCommand { store.send(.doneButtonTapped) }
+        .task { await store.send(.runningApplicationsRequested).finish() }
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didLaunchApplicationNotification)) { _ in store.send(.runningApplicationsRequested) }
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didTerminateApplicationNotification)) { _ in store.send(.runningApplicationsRequested) }
+    }
+
+    private func runningAppRow(_ app: ApplicationCandidate) -> some View {
+        HStack(spacing: 10) {
+            if let url = app.url {
+                Image(nsImage: NSWorkspace.shared.icon(forFile: url.path))
+                    .resizable()
+                    .frame(width: 28, height: 28)
+                    .accessibilityHidden(true)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(app.name)
+                Text(app.bundleID)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            Spacer(minLength: 10)
+            if store.existingIDs.contains(app.bundleID) {
+                Label("Added", systemImage: "checkmark")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                Button("Add") {
+                    store.send(.addButtonTapped(app))
                 }
-                .keyboardShortcut(.cancelAction)
+                .accessibilityLabel("Add \(app.name)")
             }
         }
-        .padding()
-        .frame(width: 480, height: 400)
     }
 
-    // MARK: - Running Apps
-
-    private var runningApps: [NSRunningApplication] {
-        NSWorkspace.shared.runningApplications
-            .filter { app in
-                guard let bundleID = app.bundleIdentifier else { return false }
-                // Filter out system/background processes
-                return app.activationPolicy == .regular
-                    && !bundleID.hasPrefix("com.apple.")
-            }
-            .sorted { ($0.localizedName ?? "") < ($1.localizedName ?? "") }
-    }
-
-    private func isAlreadyAdded(_ app: NSRunningApplication) -> Bool {
-        guard let bundleID = app.bundleIdentifier else { return false }
-        return configStore.config.monitoredApps.contains { $0.bundleID == bundleID }
-    }
-
-    private func addRunningApp(_ app: NSRunningApplication) {
-        guard let bundleID = app.bundleIdentifier else { return }
-        let monitored = MonitoredApp(
-            id: UUID(),
-            bundleID: bundleID,
-            name: app.localizedName ?? bundleID,
-            isEnabled: true,
-            source: .manual
-        )
-        configStore.addApp(monitored)
-    }
-
-    // MARK: - Browse
-
-    private func browseForApp() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.application]
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        panel.canChooseFiles = true
-        panel.directoryURL = URL(fileURLWithPath: "/Applications")
-
-        if panel.runModal() == .OK, let url = panel.url {
-            guard let bundle = Bundle(url: url),
-                  let bundleID = bundle.bundleIdentifier else { return }
-
-            let name = bundle.object(forInfoDictionaryKey: "CFBundleName") as? String
-                ?? bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
-                ?? url.deletingPathExtension().lastPathComponent
-
-            let monitored = MonitoredApp(
-                id: UUID(),
-                bundleID: bundleID,
-                name: name,
-                isEnabled: true,
-                source: .manual
-            )
-            configStore.addApp(monitored)
-        }
-    }
-
-    // MARK: - Manual
-
-    private func addManualBundleID() {
-        let trimmed = manualBundleID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-
-        let monitored = MonitoredApp(
-            id: UUID(),
-            bundleID: trimmed,
-            name: trimmed,
-            isEnabled: true,
-            source: .manual
-        )
-        configStore.addApp(monitored)
-        manualBundleID = ""
-    }
 }
