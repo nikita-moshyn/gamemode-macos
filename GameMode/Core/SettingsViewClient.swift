@@ -43,6 +43,12 @@ struct SettingsViewClient: Sendable {
     var loginStatus: @MainActor @Sendable () -> LoginItemStatus
     var setLaunchAtLogin: @MainActor @Sendable (Bool) throws -> LoginItemStatus
 
+    var recoveryStatus: @Sendable () -> RecoveryStatus = { .init() }
+    var openRecoverySettings: @MainActor @Sendable () -> Void = {}
+    var chooseRecoveryKitDestination: @MainActor @Sendable () async -> URL? = { nil }
+    var chooseRecoveryFile: @MainActor @Sendable () async -> URL? = { nil }
+    var readRecoveryFile: @Sendable (URL) throws -> RecoveryBackup = { try RecoveryBackup.read(from: $0) }
+
     static let liveValue = Self(scanGames: {
         await Task.detached(priority: .userInitiated) { AppDetector.scanForGames() }.value
     }, runningApplications: {
@@ -82,7 +88,20 @@ struct SettingsViewClient: Sendable {
         if enabled { try SMAppService.mainApp.register() }
         else { try SMAppService.mainApp.unregister() }
         return currentLoginStatus()
-    })
+    }, recoveryStatus: {
+        var status = RecoveryStatus()
+        switch SMAppService.agent(plistName: RecoveryAgentFiles.serviceName + ".plist").status {
+        case .enabled: status.protection = RecoveryAgentFiles.live.isRunning ? .ready : .waiting
+        case .requiresApproval: status.protection = .approval
+        case .notRegistered: status.protection = .disabled
+        case .notFound: status.protection = .unavailable
+        @unknown default: status.protection = .unavailable
+        }
+        return status
+    }, openRecoverySettings: {
+        SMAppService.openSystemSettingsLoginItems()
+    }, chooseRecoveryKitDestination: { await RecoveryFilePanels.save() },
+        chooseRecoveryFile: { await RecoveryFilePanels.open() })
 
     static var previewValue: Self {
         let status = LockIsolated(LoginItemStatus.notRegistered)

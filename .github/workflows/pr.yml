@@ -60,6 +60,11 @@ jobs:
             DEVELOPMENT_TEAM="" \
             test
 
+      - name: Verify independent crash recovery
+        env:
+          GAMEMODE_RECOVERY_HELPER: build/DerivedData/Build/Products/Debug/GameMode.app/Contents/MacOS/GameModeRecovery
+        run: python3 scripts/test_recovery_helper.py
+
   required-check:
     name: build
     if: always()

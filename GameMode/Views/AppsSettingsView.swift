@@ -68,9 +68,6 @@ struct AppsSettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .sheet(item: $store.scope(state: \.appPicker, action: \.appPicker)) { pickerStore in
-            AppPickerSheet(store: pickerStore)
-        }
     }
 
     private func appRow(_ app: MonitoredApp) -> some View {

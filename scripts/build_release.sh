@@ -70,6 +70,13 @@ result = json.load(open(sys.argv[1]))
 if result.get('status') != 'Accepted':
     raise SystemExit(f"Notarization was not accepted: {result.get('status')}; submission {result.get('id')}")
 PY
+# The exported app must carry its own ticket after it leaves the main bundle.
+RECOVERY_APP="build/GameMode.app/Contents/Helpers/GameMode Recovery.app"
+if [ -d "$RECOVERY_APP" ]; then
+    xcrun stapler staple "$RECOVERY_APP"
+    codesign --verify --deep --strict "$RECOVERY_APP"
+    spctl --assess --type execute --verbose "$RECOVERY_APP"
+fi
 xcrun stapler staple build/GameMode.app
 spctl --assess --type execute --verbose build/GameMode.app
 rm "$ZIP"

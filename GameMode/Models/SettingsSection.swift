@@ -8,6 +8,33 @@
 
 import Foundation
 
+enum SettingsDestination: Hashable {
+    case recovery
+    case addApplications
+
+    var title: String {
+        switch self {
+        case .recovery: "Recovery"
+        case .addApplications: "Add Applications"
+        }
+    }
+}
+
+/// Navigation history stores locations, never file contents or unfinished edits.
+enum SettingsLocation: Equatable {
+    case section(SettingsSection)
+    case recovery
+    case addApplications
+
+    var section: SettingsSection {
+        switch self {
+        case .section(let section): section
+        case .recovery: .system
+        case .addApplications: .applications
+        }
+    }
+}
+
 enum SettingsSection: String, CaseIterable, Identifiable, Sendable {
     // Retain persisted identifiers while presenting the new names and order.
     case general, shortcuts, mouse, display, applications, hotkeys, system
@@ -47,7 +74,12 @@ enum SettingsSection: String, CaseIterable, Identifiable, Sendable {
     }
 
     static func resolve(_ identifier: String) -> SettingsSection? {
-        let section = identifier == "logs" ? .system : SettingsSection(rawValue: identifier)
+        let section: SettingsSection?
+        switch identifier {
+        case "logs": section = .system
+        case "functionKeys": section = .shortcuts
+        default: section = SettingsSection(rawValue: identifier)
+        }
         guard let section, availableCases.contains(section) else { return nil }
         return section
     }

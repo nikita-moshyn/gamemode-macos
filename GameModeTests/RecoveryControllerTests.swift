@@ -199,7 +199,7 @@ final class RecoveryControllerTests: XCTestCase {
         let failing = StateJournal(directory: directory, writer: { _, _ in throw JournalError.io("test write", 5) })
         let subject = RecoveryController(journal: failing, operations: machine.operations)
         var mutations = 0
-        XCTAssertThrowsError(try subject.activate(state()) { mutations += 1 })
+        XCTAssertThrowsError(try subject.activate(state(AppliedChanges(functionKeysChanged: true, previousFunctionKeysEnabled: false, disabledShortcutIDs: [], mouseSpeedChanged: false, previousMouseSpeed: nil))) { mutations += 1 })
         XCTAssertEqual(mutations, 0)
     }
 
@@ -278,7 +278,7 @@ final class RecoveryControllerTests: XCTestCase {
     }
 
     func test_missingJournalDuringLiveSessionIsNotTreatedAsRestored() throws {
-        try controller.activate(state()) {}
+        try controller.activate(state(AppliedChanges(functionKeysChanged: true, previousFunctionKeysEnabled: false, disabledShortcutIDs: [], mouseSpeedChanged: false, previousMouseSpeed: nil))) {}
         try FileManager.default.removeItem(at: directory)
         XCTAssertThrowsError(try controller.restore())
         XCTAssertThrowsError(try controller.applyMouseProfile(speed: 0.8))
@@ -396,7 +396,7 @@ final class RecoveryControllerTests: XCTestCase {
                 if failCompletion && $0 == .cleanManifestCommitted { throw JournalError.io("interrupted completion", 5) }
             })
             let subject = RecoveryController(journal: store, operations: machine.operations)
-            try subject.activate(state()) {}
+            try subject.activate(state(AppliedChanges(functionKeysChanged: true, previousFunctionKeysEnabled: false, disabledShortcutIDs: [], mouseSpeedChanged: false, previousMouseSpeed: nil))) {}
             failCompletion = true
             XCTAssertThrowsError(try subject.restore())
             failCompletion = false
@@ -404,7 +404,7 @@ final class RecoveryControllerTests: XCTestCase {
             else { try FileManager.default.removeItem(at: store.directory) }
             XCTAssertThrowsError(try subject.restore())
             XCTAssertTrue(subject.hasOpenSession)
-            XCTAssertThrowsError(try subject.activate(state()) { XCTFail("Missing authority must block activation") })
+            XCTAssertThrowsError(try subject.activate(state(AppliedChanges(functionKeysChanged: true, previousFunctionKeysEnabled: false, disabledShortcutIDs: [], mouseSpeedChanged: false, previousMouseSpeed: nil))) { XCTFail("Missing authority must block activation") })
         }
     }
 
@@ -466,7 +466,7 @@ final class RecoveryControllerTests: XCTestCase {
             return ["Final durability barrier failed"]
         }
         let subject = RecoveryController(journal: journal, operations: operations)
-        try subject.activate(state()) {}
+        try subject.activate(state(AppliedChanges(functionKeysChanged: true, previousFunctionKeysEnabled: false, disabledShortcutIDs: [], mouseSpeedChanged: false, previousMouseSpeed: nil))) {}
         XCTAssertThrowsError(try subject.restore())
         guard case .pending = journal.inspect() else { return XCTFail("Unknown durability outcome must remain pending") }
     }

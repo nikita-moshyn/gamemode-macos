@@ -13,13 +13,16 @@ import Sparkle
 import SwiftUI
 
 @MainActor
-class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, ObservableObject {
+    @Published private(set) var canNavigateSettingsBack = false
+    @Published private(set) var canNavigateSettingsForward = false
     static var isTesting: Bool {
         ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
             || NSClassFromString("XCTestCase") != nil
             || ProcessInfo.processInfo.arguments.contains("--testing")
     }
     private static let isPreview = ProcessInfo.processInfo.arguments.contains("--ui-preview")
+    private let instanceLock = ApplicationInstanceLock()
     private lazy var engine = GameEngine()
     private let platformAdapter = AppPlatformAdapter()
     private var statusItem: NSStatusItem!
@@ -69,6 +72,22 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Hosted tests must never launch the live app or mutate system settings.
         guard !Self.isTesting else { return }
         NSApp.setActivationPolicy(.accessory)
+        if !Self.isPreview {
+            do {
+                let otherCopy = NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "com.moshyn.nikita.GameMode")
+                    .contains { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier && !$0.isTerminated && $0.executableURL?.lastPathComponent == "GameMode" }
+                // A helper may be finishing crash recovery as the app reopens.
+                try instanceLock.acquire(otherInstanceRunning: otherCopy, timeout: 3)
+            } catch {
+                let alert = NSAlert()
+                alert.messageText = "GameMode couldn't start safely"
+                alert.informativeText = error.localizedDescription
+                alert.addButton(withTitle: "Quit This Copy")
+                alert.runModal()
+                NSApp.terminate(nil)
+                return
+            }
+        }
         setupMenu()
         observation = store.publisher.removeDuplicates().sink { [weak self] _ in self?.refreshMenu() }
         store.send(.launched)
@@ -197,13 +216,29 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func toggleGameModeMenuAction() { store.send(.toggleMode(.menu)) }
     @objc private func toggleMouseBoostMenuAction() { store.send(.toggleMouse) }
     @objc private func reviewRecovery() { store.send(.reviewRecovery) }
-    @objc func openSettings() { store.send(.settingsRequested) }
-    @objc func openAbout() { store.send(.aboutRequested) }
+    @objc func openSettings() {
+        guard Self.isPreview || Self.isTesting || instanceLock.isAcquired else { return }
+        store.send(.settingsRequested)
+    }
+    @objc func openAbout() {
+        guard Self.isPreview || Self.isTesting || instanceLock.isAcquired else { return }
+        store.send(.aboutRequested)
+    }
+    func navigateSettingsBack() {
+        guard settingsWindow?.isKeyWindow == true else { return }
+        (settingsWindow?.contentViewController as? SettingsWindowController)?.goBack(nil)
+    }
+    func navigateSettingsForward() {
+        guard settingsWindow?.isKeyWindow == true else { return }
+        (settingsWindow?.contentViewController as? SettingsWindowController)?.goForward(nil)
+    }
     @objc private func checkForUpdates() { store.send(.command(.checkForUpdates)) }
     @objc private func quitApp() { NSApp.terminate(nil) }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard !Self.isTesting, !Self.isPreview else { return .terminateNow }
+        // A rejected duplicate must not instantiate the engine or restore the
+        // running copy's session while quitting.
+        guard !Self.isTesting, !Self.isPreview, instanceLock.isAcquired else { return .terminateNow }
         // The reducer replies after the serialized restore completes. Never block
         // main waiting for a worker: display and power setters themselves need main.
         store.send(.terminationRequested(reply: true))
@@ -212,31 +247,40 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func presentSettings() {
         if settingsWindow == nil {
-            let root = SettingsWindow(store: store.scope(state: \.settings, action: \.settings))
-            let window = NSWindow(contentViewController: NSHostingController(rootView: root))
-            window.title = "GameMode Settings"
-            window.styleMask = [.titled, .closable, .resizable, .fullSizeContentView]
-            window.titlebarAppearsTransparent = true
-            window.toolbar = NSToolbar(identifier: "GameModeSettingsToolbar")
-            window.toolbarStyle = .unified
-            window.setContentSize(NSSize(width: 820, height: 600))
-            window.contentMinSize = NSSize(width: 720, height: 500)
-            window.isReleasedWhenClosed = false
+            let controller = SettingsWindowController(store: store.scope(state: \.settings, action: \.settings))
+            let window = controller.makeWindow()
             window.center()
             if !Self.isPreview {
                 window.setFrameAutosaveName("GameModeSettings")
                 window.setFrameUsingName("GameModeSettings")
             }
             settingsWindow = window
+            controller.navigationDidChange = { [weak self] in self?.updateSettingsNavigation() }
             NotificationCenter.default.addObserver(self, selector: #selector(settingsWindowWillClose), name: NSWindow.willCloseNotification, object: window)
             NotificationCenter.default.addObserver(self, selector: #selector(settingsWindowDidBecomeKey), name: NSWindow.didBecomeKeyNotification, object: window)
+            NotificationCenter.default.addObserver(self, selector: #selector(settingsWindowDidResignKey), name: NSWindow.didResignKeyNotification, object: window)
         }
         if let settingsWindow { windowPresentation.show(settingsWindow) }
     }
 
-    @objc private func settingsWindowWillClose(_ notification: Notification) { store.send(.settingsClosed) }
+    @objc private func settingsWindowWillClose(_ notification: Notification) {
+        canNavigateSettingsBack = false
+        canNavigateSettingsForward = false
+        store.send(.settingsClosed)
+    }
 
-    @objc private func settingsWindowDidBecomeKey(_ notification: Notification) { store.send(.settingsBecameKey) }
+    @objc private func settingsWindowDidBecomeKey(_ notification: Notification) {
+        updateSettingsNavigation()
+        store.send(.settingsBecameKey)
+    }
+
+    @objc private func settingsWindowDidResignKey(_ notification: Notification) { updateSettingsNavigation() }
+
+    private func updateSettingsNavigation() {
+        let controller = settingsWindow?.contentViewController as? SettingsWindowController
+        canNavigateSettingsBack = settingsWindow?.isKeyWindow == true && controller?.canNavigateBack == true
+        canNavigateSettingsForward = settingsWindow?.isKeyWindow == true && controller?.canNavigateForward == true
+    }
 
     private func presentAbout() {
         if aboutWindow == nil {

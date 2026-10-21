@@ -94,7 +94,10 @@ class SettingsManager {
     struct FunctionKeyAccess {
         var read: () -> Bool?
         var apply: (Bool) -> Bool
-        var restoreLegacyPreference: (Bool) -> Bool
+        var bootSession: () -> String = { RecoveryIdentity.bootSession }
+        var readPreferences: () throws -> FunctionKeyPreferences = { throw RecoveryController.Failure.message("Function-key preferences could not be read.") }
+        var removeOverride: (FunctionKeyPreferences) throws -> Void = { _ in throw RecoveryController.Failure.message("Override removal is unavailable") }
+        var removeLegacyPreference: () throws -> Void = { throw RecoveryController.Failure.message("The old function-key override could not be removed.") }
 
         static var live: Self {
             Self(read: {
@@ -110,16 +113,58 @@ class SettingsManager {
                 SettingsManager.withHIDSystemConnection { connection in
                     IOHIDSetCFTypeParameter(connection, kIOHIDFKeyModeKey as CFString, NSNumber(value: enabled ? 1 : 0)) == kIOReturnSuccess
                 } ?? false
-            }, restoreLegacyPreference: { enabled in
-                // Releases through beta.3 persisted this host-specific preference.
-                // Only their pending recovery records authorize writing it back.
+            }, readPreferences: {
+                try FunctionKeyPreferences.read()
+            }, removeOverride: { expected in
+                guard !expected.isManaged, expected.global != nil, try FunctionKeyPreferences.read() == expected else {
+                    throw RecoveryController.Failure.message("The saved override changed. Refresh its status before removing it.")
+                }
                 let key = "com.apple.keyboard.fnState" as CFString
-                CFPreferencesSetValue(key, enabled ? kCFBooleanTrue : kCFBooleanFalse,
-                                      kCFPreferencesAnyApplication, kCFPreferencesCurrentUser, kCFPreferencesCurrentHost)
-                guard CFPreferencesSynchronize(kCFPreferencesAnyApplication, kCFPreferencesCurrentUser, kCFPreferencesCurrentHost) else { return false }
-                return (CFPreferencesCopyValue(key, kCFPreferencesAnyApplication, kCFPreferencesCurrentUser, kCFPreferencesCurrentHost) as? NSNumber)?.boolValue == enabled
+                CFPreferencesSetValue(key, nil, kCFPreferencesAnyApplication, kCFPreferencesCurrentUser, kCFPreferencesCurrentHost)
+                guard CFPreferencesSynchronize(kCFPreferencesAnyApplication, kCFPreferencesCurrentUser, kCFPreferencesCurrentHost) else {
+                    throw RecoveryController.Failure.message("The saved override could not be removed")
+                }
+            }, removeLegacyPreference: {
+                // Recheck immediately before deletion; another app may have changed the preference.
+                guard try FunctionKeyPreferences.read().hasLegacyConflict else { return }
+                let key = "com.apple.keyboard.fnState" as CFString
+                CFPreferencesSetValue(key, nil, kCFPreferencesAnyApplication, kCFPreferencesCurrentUser, kCFPreferencesCurrentHost)
+                guard CFPreferencesSynchronize(kCFPreferencesAnyApplication, kCFPreferencesCurrentUser, kCFPreferencesCurrentHost) else {
+                    throw RecoveryController.Failure.message("The old function-key override could not be removed. Retry Recovery.")
+                }
             })
         }
+    }
+
+    func needsLegacyFunctionKeyRepair() throws -> Bool {
+        guard try functionKeys.readPreferences().hasLegacyConflict else { return false }
+        guard readFunctionKeysEnabled() != nil else {
+            throw RecoveryController.Failure.message("The current function-key mode could not be read. No override was removed.")
+        }
+        return true
+    }
+
+    /// Called only for a journaled, explicitly authorized cleanup, including a retry after a crash.
+    private func completeLegacyFunctionKeyRepair() throws {
+        let preferences = try functionKeys.readPreferences()
+        // A new normal preference, a deliberate OFF override, or device management cancels the cleanup.
+        guard !preferences.isManaged, preferences.global == false, preferences.host != false else { return }
+        guard readFunctionKeysEnabled() != nil else {
+            throw RecoveryController.Failure.message("The current function-key mode could not be read. Retry Recovery.")
+        }
+        if preferences.host == true { try functionKeys.removeLegacyPreference() }
+        let updated = try functionKeys.readPreferences()
+        guard !updated.isManaged, updated.global == false, updated.host != false else { return }
+        guard updated.host == nil else {
+            throw RecoveryController.Failure.message("The old function-key override is still present. Retry Recovery.")
+        }
+        guard writeFunctionKeys(enabled: false) else {
+            throw RecoveryController.Failure.message("The normal media-key mode could not be applied. Retry Recovery.")
+        }
+        guard try functionKeys.readPreferences() == updated else {
+            throw RecoveryController.Failure.message("Function-key preferences changed during cleanup. Retry Recovery to recheck them.")
+        }
+        Log.info("Removed the legacy standard-function-key override and verified media keys", category: "FnKeys")
     }
 
     // MARK: - Keyboard Shortcuts
@@ -189,7 +234,12 @@ class SettingsManager {
 
     /// Capture current gesture values before disabling them.
     /// Returns a dictionary of [preferenceKey: [domain: originalValueOrNil]].
-    func captureGestureValues(entries: [GestureEntry]) -> GesturePreferenceValues {
+    func captureGestureValues(entries: [GestureEntry]) throws -> GesturePreferenceValues {
+        for domain in Set(entries.flatMap(\.domains)) {
+            guard CFPreferencesSynchronize(domain as CFString, kCFPreferencesCurrentUser, kCFPreferencesCurrentHost) else {
+                throw RecoveryController.Failure.message("Trackpad settings could not be read. Try again.")
+            }
+        }
         var captured: GesturePreferenceValues = [:]
         for entry in entries {
             var domainValues: [String: Int?] = [:]
@@ -214,7 +264,8 @@ class SettingsManager {
 
     /// Write gesture preferences. Pass 0 to disable, or original value to restore.
     /// Writes to ALL domains for each entry.
-    func writeGestures(entries: [GestureEntry], value: Int) {
+    @discardableResult
+    func writeGestures(entries: [GestureEntry], value: Int) -> Bool {
         var updatedDomains = Set<String>()
         for entry in entries {
             for domain in entry.domains {
@@ -228,8 +279,9 @@ class SettingsManager {
                 updatedDomains.insert(domain)
             }
         }
-        synchronizePreferences(domains: updatedDomains)
+        let saved = synchronizePreferences(domains: updatedDomains)
         Log.info("Wrote \(entries.count) gesture(s) = \(value)", category: "Settings")
+        return saved
     }
 
     /// Restore gestures from previously captured values.
@@ -263,18 +315,36 @@ class SettingsManager {
         var shortcutIDsToDisable: [Int]
         var previousGestureValues: GesturePreferenceValues?
         var gesturesToDisable: [GestureEntry]
+        var functionKeyContext: FunctionKeyRecoveryContext? = nil
     }
 
     /// Capture baselines without modifying system settings. Persist this before applying it.
     func captureKeyboardSettings(functionKeysEnabled: Bool, shortcutIDs: [Int], gestures: [GestureEntry]) throws -> KeyboardSnapshot {
-        let previousFnKeys = functionKeysEnabled ? readFunctionKeysEnabled() : nil
-        guard !functionKeysEnabled || previousFnKeys != nil else {
+        try captureKeyboardSettings(functionKeyBehavior: functionKeysEnabled ? .standard : .unchanged, shortcutIDs: shortcutIDs, gestures: gestures)
+    }
+
+    func captureKeyboardSettings(functionKeyBehavior: FunctionKeyBehavior, shortcutIDs: [Int], gestures: [GestureEntry]) throws -> KeyboardSnapshot {
+        let target = functionKeyBehavior.target
+        let previousFnKeys = target != nil ? readFunctionKeysEnabled() : nil
+        guard target == nil || previousFnKeys != nil else {
             throw RecoveryController.Failure.message("The current function-key mode could not be read. Keyboard settings were not changed.")
+        }
+        var context: FunctionKeyRecoveryContext?
+        if let target, previousFnKeys != target {
+            let preferences = try functionKeys.readPreferences()
+            guard !preferences.isManaged else { throw RecoveryController.Failure.message("Function keys are managed by your organization.") }
+            let boot = functionKeys.bootSession()
+            guard !boot.isEmpty else { throw RecoveryController.Failure.message("The current boot session could not be identified. Function keys were not changed.") }
+            context = .init(preferences: preferences, appliedMode: target, bootSession: boot)
         }
         let previousShortcuts = captureShortcutStates(ids: shortcutIDs)
         let shortcutIDsToDisable = previousShortcuts.filter(\.value).map(\.key)
-        let previousGestures = gestures.isEmpty ? nil : captureGestureValues(entries: gestures)
-        let shouldChangeFunctionKeys = functionKeysEnabled && previousFnKeys != true
+        let capturedGestures = try gestures.isEmpty ? nil : captureGestureValues(entries: gestures)
+        let gesturesToDisable = gestures.filter { entry in
+            capturedGestures?[entry.id]?.values.contains(where: { $0 != 0 }) == true
+        }
+        let previousGestures = capturedGestures?.filter { key, _ in gesturesToDisable.contains(where: { $0.id == key }) }
+        let shouldChangeFunctionKeys = context != nil
 
         Log.debug("Captured: fnKeys=\(previousFnKeys as Any), shortcuts=\(previousShortcuts.count), gestures=\(previousGestures?.count ?? 0)", category: "Keyboard")
 
@@ -283,14 +353,21 @@ class SettingsManager {
                                 previousShortcutStates: previousShortcuts.isEmpty ? nil : previousShortcuts,
                                 shortcutIDsToDisable: shortcutIDsToDisable,
                                 previousGestureValues: previousGestures,
-                                gesturesToDisable: gestures)
+                                gesturesToDisable: gesturesToDisable, functionKeyContext: context)
     }
 
     /// Apply a durably checkpointed snapshot using the existing system-write order.
     func applyKeyboardSettings(_ snapshot: KeyboardSnapshot) throws {
         if snapshot.functionKeysChanged {
-            Log.info("Activating fn keys: \(snapshot.previousFunctionKeysEnabled ?? false) → true", category: "Keyboard")
-            guard writeFunctionKeys(enabled: true) else {
+            if let context = snapshot.functionKeyContext {
+                guard try functionKeys.readPreferences() == context.preferences,
+                      readFunctionKeysEnabled() == snapshot.previousFunctionKeysEnabled else {
+                    throw RecoveryController.Failure.message("Keyboard settings changed before the gaming profile was applied. No function-key change was made. Retry Recovery.")
+                }
+            }
+            let target = snapshot.functionKeyContext?.appliedMode ?? true
+            Log.info("Applying temporary function keys: \(target)", category: "Keyboard")
+            guard writeFunctionKeys(enabled: target) else {
                 throw RecoveryController.Failure.message("Function-key mode could not be applied and verified. Its original setting is saved for recovery.")
             }
         }
@@ -298,7 +375,12 @@ class SettingsManager {
             try shortcutBlocker.startBlocking(shortcutIDs: snapshot.shortcutIDsToDisable)
         }
         if !snapshot.gesturesToDisable.isEmpty {
-            writeGestures(entries: snapshot.gesturesToDisable, value: 0)
+            let expected = Dictionary(uniqueKeysWithValues: snapshot.gesturesToDisable.map { entry in
+                (entry.id, Dictionary(uniqueKeysWithValues: entry.domains.map { ($0, Optional(0)) }))
+            })
+            guard writeGestures(entries: snapshot.gesturesToDisable, value: 0), verifyGestureValues(expected).isEmpty else {
+                throw RecoveryController.Failure.message("The gesture change could not be verified. Your saved settings will be restored.")
+            }
         }
 
         if !snapshot.gesturesToDisable.isEmpty {
@@ -312,19 +394,22 @@ class SettingsManager {
         var didChange = false
         var failures: [String] = []
 
-        // 1. Restore fn keys
+        if changes.legacyFunctionKeyCleanupPending {
+            // Cleanup has its own journal session; a malformed combination must never overwrite an original.
+            guard !changes.functionKeysChanged else { return ["Function-key recovery conflicts with legacy cleanup. Review the saved recovery data."] }
+            do { try completeLegacyFunctionKeyRepair() }
+            catch { failures.append(error.localizedDescription) }
+        }
+
+        // 1. Restore only the mode still owned by this session. Never write an old
+        // host preference back: it could hide a newer choice made in System Settings.
         if changes.functionKeysChanged {
-            if let restoreTo = changes.previousFunctionKeysEnabled {
-                Log.info("Restoring fn keys → \(restoreTo)", category: "Keyboard")
-                if changes.functionKeysWerePersisted, !functionKeys.restoreLegacyPreference(restoreTo) {
-                    failures.append("Original function-key preference could not be saved")
-                }
-                if !writeFunctionKeys(enabled: restoreTo) {
-                    failures.append("Original function-key mode could not be applied and verified")
-                }
-            } else {
-                failures.append("Original function-key setting is missing")
-            }
+            do { try restoreFunctionKeys(changes) }
+            catch { failures.append(error.localizedDescription) }
+        }
+        if let removal = changes.functionKeyOverrideRemoval {
+            do { try completeOverrideRemoval(removal) }
+            catch { failures.append(error.localizedDescription) }
         }
 
         // 2. Stop process-owned shortcut blocking. System shortcut preferences were never changed.
@@ -375,6 +460,78 @@ class SettingsManager {
         return failures
     }
 
+    private func restoreFunctionKeys(_ changes: AppliedChanges) throws {
+        guard let original = changes.previousFunctionKeysEnabled else {
+            throw RecoveryController.Failure.message("Original function-key setting is missing")
+        }
+        guard let current = readFunctionKeysEnabled() else {
+            throw RecoveryController.Failure.message("Current function-key mode could not be read")
+        }
+        let preferences = try functionKeys.readPreferences()
+        guard !preferences.isManaged else { return }
+        let target: Bool?
+        if let context = changes.functionKeyContext {
+            let boot = functionKeys.bootSession()
+            guard !boot.isEmpty else { throw RecoveryController.Failure.message("The current boot session could not be identified") }
+            target = context.restorationTarget(original: original, current: current, preferences: preferences, bootSession: boot)
+        } else {
+            // Old snapshots cannot prove ownership of saved preferences. Honor an
+            // explicit normal choice and leave persistent overrides for authorized cleanup.
+            target = preferences.global ?? (changes.functionKeysWerePersisted ? nil : original)
+        }
+        guard let target, target != current else { return }
+        guard try functionKeys.readPreferences() == preferences else {
+            throw RecoveryController.Failure.message("Function-key preferences changed during recovery. Retry Recovery.")
+        }
+        guard writeFunctionKeys(enabled: target) else {
+            throw RecoveryController.Failure.message("Original function-key mode could not be applied and verified")
+        }
+        guard try functionKeys.readPreferences() == preferences else {
+            throw RecoveryController.Failure.message("Function-key preferences changed during recovery. Retry Recovery.")
+        }
+    }
+
+    func normalFunctionKeyRecovery() throws -> AppliedChanges {
+        let preferences = try functionKeys.readPreferences()
+        guard !preferences.isManaged, let normal = preferences.effective else {
+            throw RecoveryController.Failure.message("A readable, unmanaged normal preference is required. Choose your normal behavior in Keyboard Settings first.")
+        }
+        guard let current = readFunctionKeysEnabled() else { throw RecoveryController.Failure.message("Current keyboard mode could not be read") }
+        guard current != normal else { return .empty }
+        let boot = functionKeys.bootSession()
+        guard !boot.isEmpty else { throw RecoveryController.Failure.message("The boot session could not be identified") }
+        var changes = AppliedChanges.empty
+        changes.functionKeysChanged = true
+        changes.previousFunctionKeysEnabled = normal
+        changes.functionKeyContext = .init(preferences: preferences, appliedMode: current, bootSession: boot)
+        return changes
+    }
+
+    func overrideRemoval(expected: FunctionKeyPreferences) throws -> AppliedChanges {
+        let current = try functionKeys.readPreferences()
+        guard current.host != nil else { return .empty }
+        guard current == expected, !current.isManaged, current.global != nil, readFunctionKeysEnabled() != nil else {
+            throw RecoveryController.Failure.message("The keyboard preference changed or cannot be read. Refresh its status before removing an override.")
+        }
+        var changes = AppliedChanges.empty
+        changes.functionKeyOverrideRemoval = .init(expected: current)
+        return changes
+    }
+
+    private func completeOverrideRemoval(_ removal: FunctionKeyOverrideRemoval) throws {
+        let current = try functionKeys.readPreferences()
+        guard !current.isManaged, current.global == removal.expected.global else { return }
+        guard current.host == removal.expected.host || current.host == nil else { return }
+        if current.host != nil { try functionKeys.removeOverride(current) }
+        let updated = try functionKeys.readPreferences()
+        guard !updated.isManaged, updated.global == removal.expected.global else { return }
+        guard updated.host == nil else { throw RecoveryController.Failure.message("The saved system override could not be removed") }
+        guard let normal = updated.global else { throw RecoveryController.Failure.message("Choose a normal preference in Keyboard Settings before removing its override") }
+        guard writeFunctionKeys(enabled: normal), try functionKeys.readPreferences() == updated else {
+            throw RecoveryController.Failure.message("The normal keyboard behavior could not be verified. Retry Recovery.")
+        }
+    }
+
     private func verifyGestureValues(_ values: GesturePreferenceValues) -> [String] {
         var failures: [String] = []
         for (gestureID, domains) in values {
@@ -419,6 +576,54 @@ class SettingsManager {
     }
 
     // MARK: - Helpers
+
+    func captureRecoverySettings() -> AppliedChanges {
+        var changes = AppliedChanges.empty
+        if let live = readFunctionKeysEnabled(), let preferences = try? functionKeys.readPreferences(), !preferences.isManaged {
+            changes.functionKeysChanged = true
+            changes.previousFunctionKeysEnabled = preferences.effective ?? live
+            changes.functionKeyContext = .init(preferences: preferences, appliedMode: live, bootSession: functionKeys.bootSession())
+        }
+        if let speed = readCurrentMouseSpeed(), speed.isFinite {
+            changes.mouseSpeedChanged = true
+            changes.previousMouseSpeed = speed
+        }
+        if let gestures = try? captureGestureValues(entries: GestureEntry.defaults), !gestures.isEmpty {
+            changes.gesturesChanged = true
+            changes.previousGestureValues = gestures
+        }
+        return changes
+    }
+
+    /// File restoration is explicit, but it must still preserve keyboard
+    /// preferences changed after the backup and recheck them at the setter.
+    func prepareImportedSettings(_ saved: AppliedChanges) throws -> AppliedChanges {
+        var changes = saved
+        if changes.functionKeysChanged, let original = changes.previousFunctionKeysEnabled {
+            let preferences = try functionKeys.readPreferences()
+            guard let live = readFunctionKeysEnabled() else { throw RecoveryController.Failure.message("Function keys could not be read. Try again.") }
+            // Older records do not prove when a saved macOS preference changed.
+            // Without that evidence, keep today's saved choice authoritative.
+            let target = saved.functionKeyContext.map { $0.preferences == preferences ? original : (preferences.effective ?? original) } ?? (preferences.effective ?? original)
+            changes.functionKeysChanged = !preferences.isManaged && live != target
+            changes.previousFunctionKeysEnabled = changes.functionKeysChanged ? target : nil
+            changes.functionKeysWerePersisted = false
+            changes.functionKeyContext = changes.functionKeysChanged ? .init(preferences: preferences, appliedMode: live, bootSession: functionKeys.bootSession()) : nil
+            if changes.functionKeysChanged && changes.functionKeyContext?.bootSession.isEmpty != false { throw RecoveryController.Failure.message("The keyboard could not be prepared for recovery. Try again.") }
+        }
+        if changes.mouseSpeedChanged, let original = changes.previousMouseSpeed, let current = readCurrentMouseSpeed(), abs(original - current) < 0.001 {
+            changes.mouseSpeedChanged = false
+            changes.previousMouseSpeed = nil
+        }
+        if changes.gesturesChanged, let originals = changes.previousGestureValues {
+            let entries = GestureEntry.defaults.filter { originals[$0.id] != nil }
+            let current = try captureGestureValues(entries: entries)
+            let pending = originals.filter { key, domains in domains != current[key] }
+            changes.previousGestureValues = pending.isEmpty ? nil : pending
+            changes.gesturesChanged = !pending.isEmpty
+        }
+        return changes
+    }
 
     private let mouseAccelerationKey = "HIDMouseAcceleration" as CFString
 

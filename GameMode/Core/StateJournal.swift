@@ -14,7 +14,7 @@ import Foundation
 
 typealias GesturePreferenceValues = [String: [String: Int?]]
 
-struct RecoveryDisplayMode: Codable, Equatable {
+struct RecoveryDisplayMode: Codable, Equatable, Sendable {
     var width: Int
     var height: Int
     var pixelWidth: Int
@@ -24,7 +24,7 @@ struct RecoveryDisplayMode: Codable, Equatable {
     var modeID: Int32
 }
 
-struct DisplayRecoveryRecord: Codable, Equatable {
+struct DisplayRecoveryRecord: Codable, Equatable, Sendable {
     var displayUUID: String
     var displayName: String
     var mode: RecoveryDisplayMode
@@ -38,10 +38,14 @@ struct GameModeState: Codable, Equatable {
     static let inactive = GameModeState(isActive: false, activatedAt: nil, appliedChanges: .empty)
 }
 
-struct AppliedChanges: Codable, Equatable {
+struct AppliedChanges: Codable, Equatable, Sendable {
     var functionKeysChanged: Bool
     var previousFunctionKeysEnabled: Bool?
     var functionKeysWerePersisted: Bool
+    /// A separately authorized cleanup, never a replacement for a session's original mode.
+    var legacyFunctionKeyCleanupPending: Bool = false
+    var functionKeyContext: FunctionKeyRecoveryContext? = nil
+    var functionKeyOverrideRemoval: FunctionKeyOverrideRemoval? = nil
     var disabledShortcutIDs: [Int]
     var previousShortcutStates: [Int: Bool]?
     var shortcutsWerePersisted: Bool
@@ -55,7 +59,7 @@ struct AppliedChanges: Codable, Equatable {
     var displayRestores: [DisplayRecoveryRecord]
 
     var hasPendingChanges: Bool {
-        functionKeysChanged || !disabledShortcutIDs.isEmpty || (shortcutsWerePersisted && previousShortcutStates?.isEmpty == false) || mouseSpeedChanged || gesturesChanged || lowPowerModeChanged || !displayRestores.isEmpty
+        functionKeysChanged || legacyFunctionKeyCleanupPending || functionKeyOverrideRemoval != nil || (shortcutsWerePersisted && (!disabledShortcutIDs.isEmpty || previousShortcutStates?.isEmpty == false)) || mouseSpeedChanged || gesturesChanged || lowPowerModeChanged || !displayRestores.isEmpty
     }
 
     static let empty = AppliedChanges(functionKeysChanged: false, disabledShortcutIDs: [], mouseSpeedChanged: false, previousMouseSpeed: nil)
@@ -65,6 +69,9 @@ struct AppliedChanges: Codable, Equatable {
         functionKeysChanged = try container.decode(Bool.self, forKey: .functionKeysChanged)
         previousFunctionKeysEnabled = try container.decodeIfPresent(Bool.self, forKey: .previousFunctionKeysEnabled)
         functionKeysWerePersisted = try container.decodeIfPresent(Bool.self, forKey: .functionKeysWerePersisted) ?? true
+        legacyFunctionKeyCleanupPending = try container.decodeIfPresent(Bool.self, forKey: .legacyFunctionKeyCleanupPending) ?? false
+        functionKeyContext = try container.decodeIfPresent(FunctionKeyRecoveryContext.self, forKey: .functionKeyContext)
+        functionKeyOverrideRemoval = try container.decodeIfPresent(FunctionKeyOverrideRemoval.self, forKey: .functionKeyOverrideRemoval)
         disabledShortcutIDs = try container.decode([Int].self, forKey: .disabledShortcutIDs)
         previousShortcutStates = try container.decodeIfPresent([Int: Bool].self, forKey: .previousShortcutStates)
         shortcutsWerePersisted = try container.decodeIfPresent(Bool.self, forKey: .shortcutsWerePersisted) ?? true
@@ -207,6 +214,18 @@ final class StateJournal {
         } catch {
             return .invalid(error.localizedDescription)
         }
+    }
+
+    /// Diagnostic originals are exported for inspection, never used as replay authority.
+    func recoveryEvidence() throws -> AppliedChanges? {
+        lock.lock()
+        defer { lock.unlock() }
+        if case .pending(let state) = inspect(), !FileManager.default.fileExists(atPath: manifestURL.path) { return state.appliedChanges }
+        guard FileManager.default.fileExists(atPath: manifestURL.path) else { return nil }
+        let manifest = try readManifest()
+        guard let reference = manifest.active ?? manifest.lastCompleted else { return nil }
+        let envelope = try readSnapshotEnvelope(reference)
+        return envelope.originalEvidence ?? envelope.state.appliedChanges
     }
 
     /// Loading a legacy journal first migrates it durably, without modifying its evidence.
@@ -429,10 +448,11 @@ final class StateJournal {
     }
 
     private func protectBaselines(_ old: AppliedChanges, _ new: AppliedChanges) throws {
-        guard !(old.functionKeysChanged && new.functionKeysChanged && (old.previousFunctionKeysEnabled != new.previousFunctionKeysEnabled || old.functionKeysWerePersisted != new.functionKeysWerePersisted)),
+        guard !(old.functionKeysChanged && new.functionKeysChanged && (old.previousFunctionKeysEnabled != new.previousFunctionKeysEnabled || old.functionKeysWerePersisted != new.functionKeysWerePersisted || old.functionKeyContext != new.functionKeyContext)),
               !(old.mouseSpeedChanged && new.mouseSpeedChanged && old.previousMouseSpeed != new.previousMouseSpeed),
               !(old.gesturesChanged && new.gesturesChanged && old.previousGestureValues != new.previousGestureValues),
               !(old.lowPowerModeChanged && new.lowPowerModeChanged && (old.previousLowPowerModeEnabled != new.previousLowPowerModeEnabled || old.previousLowPowerModeSettings != new.previousLowPowerModeSettings)) else { throw JournalError.changedBaseline }
+        if let removal = old.functionKeyOverrideRemoval, let pending = new.functionKeyOverrideRemoval, removal != pending { throw JournalError.changedBaseline }
         let oldShortcuts = Set(old.disabledShortcutIDs).union(old.shortcutsWerePersisted ? Array(old.previousShortcutStates?.keys ?? Dictionary<Int, Bool>().keys) : [])
         let newShortcuts = Set(new.disabledShortcutIDs).union(new.shortcutsWerePersisted ? Array(new.previousShortcutStates?.keys ?? Dictionary<Int, Bool>().keys) : [])
         for id in oldShortcuts.intersection(newShortcuts) {
@@ -454,7 +474,9 @@ final class StateJournal {
             evidence.functionKeysChanged = true
             evidence.previousFunctionKeysEnabled = pending.previousFunctionKeysEnabled
             evidence.functionKeysWerePersisted = pending.functionKeysWerePersisted
+            evidence.functionKeyContext = pending.functionKeyContext
         }
+        if let removal = pending.functionKeyOverrideRemoval { evidence.functionKeyOverrideRemoval = removal }
         if pending.mouseSpeedChanged {
             evidence.mouseSpeedChanged = true
             evidence.previousMouseSpeed = pending.previousMouseSpeed

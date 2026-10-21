@@ -327,6 +327,73 @@ final class GameModeFeatureTests: XCTestCase {
         XCTAssertEqual(harness.saves, writes)
     }
 
+    func testEnablingLegacyRepairWhileIdlePersistsAndRunsRecovery() async {
+        let harness = Harness(apps: [])
+        harness.initial.started = true
+        let store = harness.store()
+        await store.send(.settings(.binding(.set(\.config.system.repairLegacyFunctionKeyOverride, true)))).finish()
+        XCTAssertTrue(store.settings.config.system.repairLegacyFunctionKeyOverride)
+        XCTAssertEqual(harness.saves, 1)
+        XCTAssertEqual(harness.operations.map(\.operation), [.recover])
+        XCTAssertTrue(harness.transitions.isEmpty)
+    }
+
+    func testRestoreNormalBehaviorEndsGamingThroughSerializedRecovery() async {
+        for preview in [false, true] {
+            let harness = Harness(apps: [])
+            harness.setActive()
+            harness.initial.settings.isPreview = preview
+            let store = harness.store()
+            await store.send(.settings(.restoreNormalSettings)).finish()
+            XCTAssertEqual(harness.operations.map(\.operation), preview ? [] : [.restoreNormalSettings])
+            XCTAssertFalse(store.session.appliedMode)
+            XCTAssertFalse(store.session.desiredMode)
+            XCTAssertEqual(store.session.phase, .ready)
+        }
+    }
+
+    func testOverrideRemovalCannotRunWhileGaming() async {
+        let harness = Harness(apps: [])
+        harness.setActive()
+        let store = harness.store()
+        await store.send(.settings(.removeFunctionKeyOverride(.init(global: false, host: true)))).finish()
+        XCTAssertTrue(harness.operations.isEmpty)
+        XCTAssertTrue(store.session.appliedMode)
+    }
+
+    func testExportFailureDoesNotStopGamingOrDiscardPendingRecovery() async {
+        for phase: GameSession.Phase in [.ready, .needsRecovery("Keyboard still pending")] {
+            let harness = Harness(apps: [])
+            harness.setActive()
+            harness.initial.session.phase = phase
+            harness.failure = "Destination cannot be written"
+            let store = harness.store()
+            let destination = URL(fileURLWithPath: "/tmp/Example Recovery Kit")
+            await store.send(.recoveryKitDestinationChosen(destination)).finish()
+            XCTAssertEqual(harness.operations.map(\.operation), [.exportRecoveryKit(destination)])
+            XCTAssertEqual(store.session.phase, phase)
+            XCTAssertTrue(store.session.appliedMode)
+            XCTAssertFalse(store.session.settingsAreChanging)
+            XCTAssertEqual(store.settings.recoveryToolError, harness.failure)
+            XCTAssertNil(store.settings.recoveryKitPath)
+        }
+    }
+
+    func testAcceptingCurrentSettingsDisablesCleanupOnlyAfterSuccessfulAcceptance() async {
+        for failure: String? in [nil, "Cannot archive recovery"] {
+            let harness = Harness(apps: [])
+            harness.initial.settings.config.system.repairLegacyFunctionKeyOverride = true
+            harness.initial.session.phase = .needsRecovery("Pending cleanup")
+            harness.initial.settings.runtime.recoveryRequired = true
+            harness.failure = failure
+            let store = harness.store()
+            await store.send(.acceptCurrentSettings).finish()
+            XCTAssertEqual(store.settings.config.system.repairLegacyFunctionKeyOverride, failure != nil)
+            XCTAssertEqual(harness.saves, failure == nil ? 1 : 0)
+            XCTAssertEqual(harness.operations.map(\.operation), [.accept])
+        }
+    }
+
     func testRecoveryNavigationAndPermissionPollingStopWhenSettingsClose() async {
         let harness = Harness(apps: [])
         let firstRead = expectation(description: "Initial permission read")
@@ -341,6 +408,7 @@ final class GameModeFeatureTests: XCTestCase {
         let task = store.send(.reviewRecovery)
         await fulfillment(of: [firstRead], timeout: 2)
         XCTAssertEqual(store.settings.selectedSection, .system)
+        XCTAssertTrue(store.settings.recoveryPageIsPresented)
         XCTAssertTrue(store.settingsIsVisible)
         XCTAssertTrue(harness.commands.contains(.showSettings))
         harness.permissionGranted = false
@@ -374,12 +442,21 @@ final class GameModeFeatureTests: XCTestCase {
 
     func testStaleRecordingCannotOverwriteNewRecorderAndRecoveryCancelsRecording() async {
         let harness = Harness(apps: [])
-        let stream = AsyncStream<ShortcutRecordingClient.Key>.makeStream()
-        harness.keys = stream.stream
+        // The live client creates an independent stream for each recorder.
+        harness.keysFactory = { AsyncStream { _ in } }
+        let firstReady = expectation(description: "First recorder starts")
+        let secondReady = expectation(description: "Second recorder starts")
+        var starts = 0
+        harness.onRecorderStart = {
+            starts += 1
+            if starts == 1 { firstReady.fulfill() }
+            if starts == 2 { secondReady.fulfill() }
+        }
         let store = harness.store()
         let first = store.send(.settings(.recordHotkey("toggleGameMode")))
-        await Task.yield()
+        await fulfillment(of: [firstReady], timeout: 2)
         let second = store.send(.settings(.recordHotkey("toggleMouseBoost")))
+        await fulfillment(of: [secondReady], timeout: 2)
         await store.send(.settings(.recordedHotkey("toggleGameMode", .init(code: 5, modifiers: 123)))).finish()
         XCTAssertEqual(store.settings.recordingHotkeyID, "toggleMouseBoost")
         XCTAssertEqual(harness.saves, 0)
@@ -388,6 +465,82 @@ final class GameModeFeatureTests: XCTestCase {
         await second.finish()
         XCTAssertNil(store.settings.recordingHotkeyID)
         XCTAssertTrue(store.settings.runtime.recoveryRequired)
+    }
+
+    func testClearingARecordedShortcutSavesOnceAndRestoresOtherRegistrations() async {
+        let harness = Harness(apps: [])
+        harness.initial.started = true
+        harness.keys = AsyncStream { continuation in continuation.yield(.clear); continuation.finish() }
+        let store = harness.store()
+        await store.send(.settings(.recordHotkey("toggleGameMode"))).finish()
+        XCTAssertEqual(harness.saves, 1)
+        XCTAssertNil(store.settings.config.hotkeys[0].keyCode)
+        XCTAssertEqual(store.settings.config.hotkeys[0].modifiers, 0)
+        XCTAssertNil(store.settings.recordingHotkeyID)
+        XCTAssertEqual(harness.hotkeys.last, store.settings.config.hotkeys)
+    }
+
+    func testRestoreHotkeyDefaultsPreservesOtherPreferencesAndCancelsRecording() async {
+        let harness = Harness(apps: [])
+        harness.initial.started = true
+        harness.initial.settings.config.mouse.gamingSpeed = 1.9
+        harness.initial.settings.config.hotkeys[0].keyCode = 20
+        let stream = AsyncStream<ShortcutRecordingClient.Key>.makeStream()
+        harness.keys = stream.stream
+        let started = expectation(description: "Shortcut capture has installed its listener")
+        harness.onRecorderStart = { started.fulfill() }
+        let store = harness.store()
+        let recording = store.send(.settings(.recordHotkey("toggleGameMode")))
+        await fulfillment(of: [started], timeout: 2)
+        await store.send(.settings(.restoreDefaultHotkeys)).finish()
+        await recording.finish()
+        XCTAssertEqual(store.settings.config.hotkeys, AppHotkey.defaults)
+        XCTAssertEqual(store.settings.config.mouse.gamingSpeed, 1.9)
+        XCTAssertNil(store.settings.recordingHotkeyID)
+        XCTAssertEqual(harness.saves, 1)
+        XCTAssertEqual(harness.hotkeys.last, store.settings.config.hotkeys)
+    }
+
+    @MainActor
+    func testRecoveryFileIsReviewedBeforeAnySettingsChange() async throws {
+        let harness = Harness(apps: [])
+        harness.initial.settings.recoveryPageIsPresented = true
+        let backup = try RecoveryBackup(changes: AppliedChanges(functionKeysChanged: false, disabledShortcutIDs: [], mouseSpeedChanged: true, previousMouseSpeed: 0.3))
+        let store = harness.store()
+        await store.send(.settings(.recoveryFileLoaded(.success(backup), "Saved Settings.gamemoderecovery"))).finish()
+        XCTAssertTrue(harness.operations.isEmpty)
+        XCTAssertEqual(store.settings.selectedRecoverySettings, [.mouse])
+        await store.send(.settings(.recoverySettingSelected(.mouse, false))).finish()
+        await store.send(.settings(.restoreRecoveryFile)).finish()
+        XCTAssertTrue(harness.operations.isEmpty)
+        await store.send(.settings(.recoverySettingSelected(.mouse, true))).finish()
+        await store.send(.settings(.restoreRecoveryFile)).finish()
+        XCTAssertEqual(harness.operations.map(\.operation), [.restoreBackup(backup, [.mouse]), .inspectRecovery])
+        XCTAssertNil(store.settings.importedRecovery)
+        XCTAssertEqual(store.session.phase, .ready)
+        XCTAssertEqual(store.settings.recoveryNotice, "Saved settings restored.")
+    }
+
+    func testReadingRecoveryDoesNotStopGameModeWhenInspectionFails() async {
+        let harness = Harness(apps: [])
+        harness.setActive()
+        harness.failure = "Settings could not be read"
+        let store = harness.store()
+        await store.send(.settings(.recoveryPageOpened)).finish()
+        XCTAssertEqual(store.session.phase, .ready)
+        XCTAssertTrue(store.session.appliedMode)
+        XCTAssertEqual(store.settings.recoveryToolError, harness.failure)
+        XCTAssertTrue(harness.transitions.isEmpty)
+    }
+
+    func testTerminationAlwaysRestoresDespiteLegacyDisabledPreference() async {
+        let harness = Harness(apps: [])
+        harness.setActive()
+        harness.initial.settings.config.system.restoreOnShutdown = false
+        let store = harness.store()
+        await store.send(.terminationRequested(reply: true)).finish()
+        XCTAssertEqual(harness.operations.map(\.operation), [.terminate])
+        XCTAssertTrue(harness.commands.contains(.replyToTermination))
     }
 
     @MainActor
@@ -407,6 +560,8 @@ final class GameModeFeatureTests: XCTestCase {
         var onOperation: (GameEngineClient.Request) -> Void = { _ in }
         var completions: [@MainActor () -> Void] = []
         var keys: AsyncStream<ShortcutRecordingClient.Key> = .finished
+        var keysFactory: (() -> AsyncStream<ShortcutRecordingClient.Key>)?
+        var onRecorderStart: () -> Void = {}
         let clock = TestClock()
         var permissionGranted = true
         var onAccessibilityRead: () -> Void = {}
@@ -454,7 +609,7 @@ final class GameModeFeatureTests: XCTestCase {
                     return .applied
                 })
                 $0.appPlatform = .init(events: { .finished }, runningBundleIDs: { [self] in running }, accessibilityGranted: { [self] in onAccessibilityRead(); return permissionGranted }, configureHotkeys: { [self] in hotkeys.append($0) }, command: { [self] in commands.append($0) }, configureLogging: { _ in })
-                $0.shortcutRecording = .init(events: { [self] in keys })
+                $0.shortcutRecording = .init(events: { [self] in onRecorderStart(); return keysFactory?() ?? keys })
             }
         }
     }

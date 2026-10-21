@@ -30,34 +30,37 @@ struct HotkeysSettingsView: View {
             }
 
             Section {
-                ForEach(store.config.hotkeys) { hotkey in
-                    hotkeyRow(hotkey)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("To change a shortcut, double-click the key combination, then type the new keys.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .padding(10)
+                    Divider()
+                    ShortcutRecorderView(hotkeys: store.config.hotkeys, recordingHotkeyID: store.recordingHotkeyID, isEnabled: store.canEdit, onEnable: { id, enabled in
+                        store.send(.hotkeyEnabledChanged(id, enabled))
+                    }, onRecord: { store.send(.recordHotkey($0)) }, onClear: { id in
+                        store.send(.stopRecording)
+                        store.send(.updateHotkey(id: id, keyCode: nil, modifiers: 0))
+                    }, onStopRecording: { store.send(.stopRecording) })
+                        .frame(height: CGFloat(store.config.hotkeys.count) * 24)
                 }
-            } header: {
-                Text("Control GameMode")
+                .padding(-10)
             } footer: {
-                Text("These hotkeys control GameMode from any application. Click Record Shortcut, then press a key with Command, Control, Option, or Shift. Press Escape to cancel.")
+                Text("These shortcuts control GameMode from any application. Include Command, Control, Option, or Shift. Press Escape to cancel, or Delete to clear.")
             }
         }
         .formStyle(.grouped)
-    }
-
-    private func hotkeyRow(_ hotkey: AppHotkey) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Toggle(hotkey.displayName, isOn: Binding(
-                get: { currentHotkey(hotkey.id)?.isEnabled ?? false },
-                set: { newValue in
-                    store.send(.hotkeyEnabledChanged(hotkey.id, newValue))
-                }
-            ))
-            .toggleStyle(.switch)
-
-            ShortcutRecorderView(store: store, hotkey: hotkey)
+        .onDisappear { store.send(.stopRecording) }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { _ in store.send(.stopRecording) }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in store.send(.stopRecording) }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            HStack {
+                Button("Restore Defaults") { store.send(.restoreDefaultHotkeys) }
+                    .disabled(!store.canEdit)
+                Spacer()
+            }
+            .padding(20)
+            .background(.bar)
         }
-        .padding(.vertical, 4)
-    }
-
-    private func currentHotkey(_ id: String) -> AppHotkey? {
-        store.config.hotkeys.first { $0.id == id }
     }
 }

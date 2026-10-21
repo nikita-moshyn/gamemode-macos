@@ -64,6 +64,19 @@ xcodebuild \
 
 Run it again with `GAMEMODE_CHANNEL=beta` to cover beta features. Keeping `GAMEMODE_DEBUG_FEATURES=` makes each run use that channel's shipped feature set. You can also run tests in Xcode with **Product > Test**; ordinary Debug builds include all beta features.
 
+The app, crash helper, and exported tool use `RecoveryController` and its shared native adapter in `RecoveryController+System.swift` for restoration. Add recovery behavior there so all entry points retain the same journal, ordering, and preference protection. Function-key profile controls belong in Input Guard; all recovery controls belong in System’s Recovery section.
+
+The app target builds and embeds `GameModeRecovery` (the independent crash helper) and `GameMode Recovery.app` (the standalone recovery UI). Both share the native engine and have no third-party framework dependency. After building Debug, run the process-death checks:
+
+```bash
+GAMEMODE_RECOVERY_HELPER=build/DerivedData/Build/Products/Debug/GameMode.app/Contents/MacOS/GameModeRecovery \
+    python3 scripts/test_recovery_helper.py
+```
+
+These checks use a file-backed keyboard in temporary directories. They kill the session owner, restart the helper, change the saved preference, simulate a different boot, and exercise the standalone kit after removing its source app copy. They never register a background service or change your keyboard. The fixture entry points are compiled out of Release. Hosted Swift tests inject `CrashRecoveryProtection.testing`; only a normal app launch registers the real LaunchAgent.
+
+If macOS blocks an ad hoc test host from loading libraries inside Documents, use `build-for-testing`, copy the generated `Build/Products` directory to a temporary directory, and run `xcodebuild -xctestrun <copied-file.xctestrun> -destination 'platform=macOS' test-without-building`. This keeps the tests independent of Documents-folder access.
+
 For release tooling changes:
 
 ```bash

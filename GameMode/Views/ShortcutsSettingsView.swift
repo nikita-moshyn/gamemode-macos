@@ -17,18 +17,19 @@ struct ShortcutsSettingsView: View {
             Section {
                 Toggle("Input Guard", isOn: $store.config.isInputGuardEnabled)
             } footer: {
-                Text("Block selected shortcuts and gestures during Game Mode. You can also use standard function keys.")
+                Text("Choose function-key behavior and block selected shortcuts and gestures during Game Mode.")
+            }
+
+            Section {
+                Picker("Function Keys", selection: $store.config.functionKeyBehavior) {
+                    ForEach(FunctionKeyBehavior.allCases, id: \.self) { behavior in
+                        Text(behavior.title).tag(behavior)
+                    }
+                }
+                .disabled(!store.config.isInputGuardEnabled || !store.canEdit)
             }
 
             Group {
-                Section {
-                    Toggle("Use F1, F2, etc. as standard function keys", isOn: $store.config.functionKeysInGamingMode)
-                } header: {
-                    Text("Function Keys")
-                } footer: {
-                    Text("Use F1–F12 directly instead of brightness, volume, and other media controls.")
-                }
-
                 ForEach(groupedCategories, id: \.category) { group in
                     Section(group.category) {
                         ForEach(group.entries, id: \.id) { entry in
