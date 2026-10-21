@@ -34,5 +34,25 @@
 	<string>https://raw.githubusercontent.com/nikita-moshyn/gamemode-macos/main/appcast.xml</string>
 	<key>SUPublicEDKey</key>
 	<string>pKD1lgEEGCiYZ9mmKpa2odudG4KaKqNpi8QQKO5xzhU=</string>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.moshyn.nikita.GameMode.recovery</string>
+			<key>UTTypeDescription</key>
+			<string>GameMode Recovery Settings</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>gamemoderecovery</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
 </dict>
 </plist>

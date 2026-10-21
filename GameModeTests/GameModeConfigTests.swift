@@ -53,6 +53,7 @@ final class GameModeConfigTests: XCTestCase {
         XCTAssertEqual(config.mouse.gamingSpeed, 0.5)
         XCTAssertTrue(config.system.restoreOnShutdown)
         XCTAssertTrue(config.system.restoreOnLaunch)
+        XCTAssertFalse(config.system.repairLegacyFunctionKeyOverride)
         XCTAssertEqual(config.shortcuts.count, ShortcutEntry.defaults.count)
         XCTAssertEqual(config.gestures.count, GestureEntry.defaults.count)
         XCTAssertEqual(config.hotkeys.count, AppHotkey.defaults.count)
@@ -70,6 +71,16 @@ final class GameModeConfigTests: XCTestCase {
 
         reloaded.receivesBetaUpdates = false
         XCTAssertTrue(reloaded.allowedUpdateChannels.isEmpty)
+    }
+
+    func testLegacyFunctionKeyCleanupRequiresSavedOptIn() throws {
+        let old = try JSONDecoder().decode(SystemConfig.self, from: Data(#"{"restoreOnLaunch":false,"restoreOnShutdown":true}"#.utf8))
+        XCTAssertFalse(old.repairLegacyFunctionKeyOverride)
+        XCTAssertFalse(old.restoreOnLaunch)
+        var config = GameModeConfig.defaults
+        config.system.repairLegacyFunctionKeyOverride = true
+        let reloaded = try JSONDecoder().decode(GameModeConfig.self, from: JSONEncoder().encode(config))
+        XCTAssertTrue(reloaded.system.repairLegacyFunctionKeyOverride)
     }
 
     func test_existingInstallDoesNotAutomaticallyOptIntoBetaUpdates() throws {

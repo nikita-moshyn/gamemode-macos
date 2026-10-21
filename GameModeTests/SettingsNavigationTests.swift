@@ -28,6 +28,109 @@ final class SettingsNavigationTests: XCTestCase {
         var errorDescription: String? { "Could not save preferences" }
     }
 
+    private func navigationStore(state: AppSettings.State = .init()) -> StoreOf<AppSettings> {
+        Store(initialState: state) { AppSettings() } withDependencies: {
+            $0.settingsClient.saveSelectedSection = { _ in }
+            $0.settingsClient.save = { _ in }
+            $0.settingsClient.detectShortcuts = { [] }
+        }
+    }
+
+    func testBackAndForwardRetracePanesAndRecovery() async {
+        let store = navigationStore()
+        XCTAssertFalse(store.canNavigateBack)
+        XCTAssertFalse(store.canNavigateForward)
+        store.send(.sectionSelected(.mouse))
+        store.send(.sectionSelected(.system))
+        store.send(.recoveryPageOpened)
+        XCTAssertEqual(store.navigationTitle, "Recovery")
+        XCTAssertEqual(store.selectedSection, .system)
+        store.send(.navigationBackRequested)
+        XCTAssertEqual(store.navigationTitle, "System")
+        store.send(.navigationBackRequested)
+        XCTAssertEqual(store.navigationTitle, "Mouse")
+        store.send(.navigationBackRequested)
+        XCTAssertEqual(store.navigationTitle, "General")
+        XCTAssertFalse(store.canNavigateBack)
+        XCTAssertTrue(store.canNavigateForward)
+        store.send(.navigationForwardRequested)
+        store.send(.navigationForwardRequested)
+        await store.send(.navigationForwardRequested).finish()
+        XCTAssertEqual(store.navigationTitle, "Recovery")
+        XCTAssertEqual(store.selectedSection, .system)
+        XCTAssertFalse(store.canNavigateForward)
+        XCTAssertEqual(store.config, .defaults, "Navigation must not edit preferences")
+    }
+
+    func testNewSelectionClearsForwardHistoryAndRepeatedSelectionDoesNotAddEntries() {
+        let store = navigationStore()
+        store.send(.sectionSelected(.mouse))
+        store.send(.sectionSelected(.system))
+        store.send(.navigationBackRequested)
+        XCTAssertTrue(store.canNavigateForward)
+        store.send(.sectionSelected(.hotkeys))
+        XCTAssertFalse(store.canNavigateForward)
+        let history = store.backHistory
+        store.send(.sectionSelected(.hotkeys))
+        store.send(.sectionSelected(nil))
+        XCTAssertEqual(store.backHistory, history)
+        store.send(.navigationBackRequested)
+        XCTAssertEqual(store.selectedSection, .mouse)
+    }
+
+    func testReturningToRecoveryRefreshesThePageWithoutReopeningAnImportedFile() async throws {
+        var state = AppSettings.State(selectedSection: .system)
+        state.recoveryPageIsPresented = true
+        state.importedRecovery = try RecoveryBackup(changes: AppliedChanges(functionKeysChanged: false, disabledShortcutIDs: [], mouseSpeedChanged: true, previousMouseSpeed: 0.3))
+        state.importedRecoveryName = "Saved Settings.gamemoderecovery"
+        state.selectedRecoverySettings = [.mouse]
+        let store = navigationStore(state: state)
+        store.send(.navigationBackRequested)
+        XCTAssertEqual(store.navigationTitle, "System", "A directly opened child still has a parent")
+        await store.send(.navigationForwardRequested).finish()
+        XCTAssertEqual(store.navigationTitle, "Recovery")
+        XCTAssertNil(store.importedRecovery)
+        XCTAssertNil(store.importedRecoveryName)
+        XCTAssertTrue(store.selectedRecoverySettings.isEmpty)
+        XCTAssertEqual(store.backHistory, [.section(.system)])
+        store.send(.recoveryPageOpened)
+        XCTAssertEqual(store.backHistory, [.section(.system)], "Refreshing Recovery does not add a history entry")
+    }
+
+    func testForwardReopensAFreshApplicationPickerUsingTheLatestConfiguration() async {
+        let store = navigationStore(state: .init(selectedSection: .applications))
+        let opening = store.send(.addAppButtonTapped)
+        store.send(.appPicker(.presented(.binding(.set(\.manualBundleID, "unfinished")))))
+        store.send(.navigationBackRequested)
+        await opening.finish()
+        let app = MonitoredApp(id: UUID(), bundleID: "test.new.game", name: "New Game", isEnabled: true, source: .manual)
+        store.send(.addApp(app))
+        let reopening = store.send(.navigationForwardRequested)
+        XCTAssertEqual(store.navigationTitle, "Add Applications")
+        XCTAssertEqual(store.appPicker?.manualBundleID, "")
+        XCTAssertTrue(store.appPicker?.existingIDs.contains(app.bundleID) == true)
+        store.send(.navigationBackRequested)
+        await reopening.finish()
+    }
+
+    func testHistoryCannotReopenAnApplicationPickerWhileEditingIsBlocked() async {
+        let store = navigationStore(state: .init(selectedSection: .applications))
+        let opening = store.send(.addAppButtonTapped)
+        store.send(.navigationBackRequested)
+        await opening.finish()
+        store.send(.runtimeUpdated(.init(recoveryRequired: true)))
+        XCTAssertFalse(store.canNavigateForward)
+        store.send(.navigationForwardRequested)
+        XCTAssertNil(store.appPicker)
+        XCTAssertEqual(store.selectedSection, .applications)
+        store.send(.runtimeUpdated(.init()))
+        XCTAssertTrue(store.canNavigateForward)
+        let reopening = store.send(.navigationForwardRequested)
+        XCTAssertNotNil(store.appPicker)
+        store.send(.navigationBackRequested)
+        await reopening.finish()
+    }
+
     func testSidebarSelectionDefersDiscoveryAndRetainsTheLastDestination() async {
         let sections = LockIsolated<[SettingsSection]>([])
         let saved = LockIsolated<[GameModeConfig]>([])
@@ -37,7 +140,10 @@ final class SettingsNavigationTests: XCTestCase {
         client.detectShortcuts = { [discovered] }
         client.save = { config in saved.withValue { $0.append(config) } }
         let store = store(client: client)
-        await store.send(.sectionSelected(.shortcuts)) { $0.selectedSection = .shortcuts }
+        await store.send(.sectionSelected(.shortcuts)) {
+            $0.selectedSection = .shortcuts
+            $0.backHistory = [.section(.general)]
+        }
         await store.receive(\.refreshShortcuts) {
             $0.config.shortcuts.append(.init(id: 999, name: "New shortcut", category: "Test", disableInGamingMode: false))
             $0.hasSavedConfiguration = true
@@ -45,11 +151,17 @@ final class SettingsNavigationTests: XCTestCase {
         await store.send(.sectionSelected(.shortcuts))
         await store.send(.sectionSelected(nil))
         #if FEATURE_DISPLAYS
-        await store.send(.sectionSelected(.display)) { $0.selectedSection = .display }
+        await store.send(.sectionSelected(.display)) {
+            $0.selectedSection = .display
+            $0.backHistory.append(.section(.shortcuts))
+        }
         #else
         await store.send(.sectionSelected(.display))
         #endif
-        await store.send(.sectionSelected(.system)) { $0.selectedSection = .system }
+        await store.send(.sectionSelected(.system)) {
+            $0.backHistory.append(.section($0.selectedSection))
+            $0.selectedSection = .system
+        }
         #if FEATURE_DISPLAYS
         XCTAssertEqual(sections.value, [.shortcuts, .display, .system])
         #else
@@ -94,7 +206,7 @@ final class SettingsNavigationTests: XCTestCase {
     }
 
     func testRememberedLegacyAndInvalidSectionsNeverRewriteSavedConfiguration() async throws {
-        for (identifier, expected) in [("logs", SettingsSection.system), ("unknown", .general)] {
+        for (identifier, expected) in [("logs", SettingsSection.system), ("functionKeys", .shortcuts), ("unknown", .general)] {
             let suite = "GameMode.Navigation.\(UUID().uuidString)"
             let defaults = UserDefaults(suiteName: suite)!
             defer { defaults.removePersistentDomain(forName: suite) }
@@ -105,6 +217,7 @@ final class SettingsNavigationTests: XCTestCase {
             let store = store(state: client.load(), client: client)
             XCTAssertEqual(store.state.selectedSection, expected)
             await store.send(.settingsOpened)
+            if expected == .shortcuts { await store.receive(\.refreshShortcuts) }
             XCTAssertEqual(defaults.string(forKey: "GameModeSettingsSection"), expected.rawValue)
             XCTAssertEqual(defaults.data(forKey: "GameModeConfig_v2"), unreadable)
             XCTAssertFalse(store.state.canEdit)
@@ -116,7 +229,10 @@ final class SettingsNavigationTests: XCTestCase {
         var client = SettingsClient.testValue
         client.saveSelectedSection = { section in sections.withValue { $0.append(section) } }
         let store = store(state: .init(runtime: .init(recoveryRequired: true), selectedSection: .mouse), client: client)
-        await store.send(.sectionSelected(.system)) { $0.selectedSection = .system }
+        await store.send(.sectionSelected(.system)) {
+            $0.selectedSection = .system
+            $0.backHistory = [.section(.mouse)]
+        }
         await store.send(.settingsOpened)
         XCTAssertEqual(sections.value, [.system, .system])
         XCTAssertFalse(store.state.canEdit)
@@ -124,12 +240,42 @@ final class SettingsNavigationTests: XCTestCase {
         await store.send(.scanButtonTapped)
     }
 
+    func testLeavingRecoveryClearsFileReviewAndRestoresThePaneTitle() async throws {
+        var client = SettingsClient.testValue
+        client.saveSelectedSection = { _ in }
+        let backup = try RecoveryBackup(changes: AppliedChanges(functionKeysChanged: false, disabledShortcutIDs: [], mouseSpeedChanged: true, previousMouseSpeed: 0.3))
+        var state = AppSettings.State(selectedSection: .system)
+        state.recoveryPageIsPresented = true
+        state.importedRecovery = backup
+        state.importedRecoveryName = "Saved Settings.gamemoderecovery"
+        state.selectedRecoverySettings = [.mouse]
+        XCTAssertEqual(state.navigationTitle, "Recovery")
+        let store = store(state: state, client: client)
+        await store.send(.sectionSelected(.mouse)) {
+            $0.backHistory = [.recovery]
+            $0.selectedSection = .mouse
+            $0.recoveryPageIsPresented = false
+            $0.importedRecovery = nil
+            $0.importedRecoveryName = nil
+            $0.selectedRecoverySettings = []
+        }
+        XCTAssertEqual(store.state.navigationTitle, "Mouse")
+        await store.send(.sectionSelected(.system)) {
+            $0.selectedSection = .system
+            $0.backHistory.append(.section(.mouse))
+        }
+        XCTAssertEqual(store.state.navigationTitle, "System")
+    }
+
     func testManualPickerAddsValidatedApplicationAndPreservesPrefixMatching() async {
         var client = SettingsClient.testValue
         client.save = { _ in }
-        let store = store(client: client)
+        let store = store(state: .init(selectedSection: .applications), client: client)
         let existing = Set(store.state.config.monitoredApps.map(\.bundleID))
-        await store.send(.addAppButtonTapped) { $0.appPicker = .init(existingIDs: existing) }
+        await store.send(.addAppButtonTapped) {
+            $0.appPicker = .init(existingIDs: existing)
+            $0.backHistory = [.section(.applications)]
+        }
         await store.send(.appPicker(.presented(.binding(.set(\.manualBundleID, " com.example.games.* "))))) {
             $0.appPicker?.manualBundleID = " com.example.games.* "
         }
@@ -144,7 +290,11 @@ final class SettingsNavigationTests: XCTestCase {
         }
         XCTAssertTrue(added.matches(bundleID: "com.example.games.first"))
         await store.send(.appPicker(.presented(.doneButtonTapped)))
-        await store.receive(\.appPicker.dismiss) { $0.appPicker = nil }
+        await store.receive(\.appPicker.dismiss) {
+            $0.appPicker = nil
+            $0.backHistory = []
+            $0.forwardHistory = [.addApplications]
+        }
     }
 
     func testPickerDoesNotClaimSuccessOrClearInputWhenSavingFails() async {
@@ -175,6 +325,7 @@ final class SettingsNavigationTests: XCTestCase {
         client.saveSelectedSection = { _ in }
         let store = store(state: .init(selectedSection: .applications, appPicker: .init(manualBundleID: "unfinished")), client: client)
         await store.send(.sectionSelected(.system)) {
+            $0.backHistory = [.addApplications]
             $0.selectedSection = .system
             $0.appPicker = nil
         }
@@ -200,7 +351,7 @@ final class SettingsNavigationTests: XCTestCase {
         let apps = [ApplicationCandidate(bundleID: "test.game", name: "Game")]
         var viewClient = SettingsViewClient.testValue
         viewClient.runningApplications = { apps }
-        let store = Store(initialState: AppSettings.State()) { AppSettings() } withDependencies: {
+        let store = Store(initialState: AppSettings.State(selectedSection: .applications)) { AppSettings() } withDependencies: {
             $0.settingsViewClient = viewClient
         }
 

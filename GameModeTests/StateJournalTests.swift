@@ -480,6 +480,8 @@ final class AppliedChangesCodableTests: XCTestCase {
         XCTAssertTrue(changes.hasPendingChanges)
         changes = .empty
         changes.disabledShortcutIDs = [64]
+        XCTAssertFalse(changes.hasPendingChanges)
+        changes.shortcutsWerePersisted = true
         XCTAssertTrue(changes.hasPendingChanges)
         changes = .empty
         changes.gesturesChanged = true

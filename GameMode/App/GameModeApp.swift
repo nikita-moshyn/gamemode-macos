@@ -17,6 +17,16 @@ struct GameModeApp: App {
             EmptyView()
         }
         .commands {
+            SidebarCommands()
+            CommandGroup(before: .sidebar) {
+                Button("Back") { appDelegate.navigateSettingsBack() }
+                    .keyboardShortcut("[", modifiers: .command)
+                    .disabled(!appDelegate.canNavigateSettingsBack)
+                Button("Forward") { appDelegate.navigateSettingsForward() }
+                    .keyboardShortcut("]", modifiers: .command)
+                    .disabled(!appDelegate.canNavigateSettingsForward)
+                Divider()
+            }
             CommandGroup(replacing: .appSettings) {
                 Button("Settings…") { appDelegate.openSettings() }
                     .keyboardShortcut(",", modifiers: .command)

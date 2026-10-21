@@ -7,6 +7,11 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		F90001000000000000000001 /* SettingsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F90002000000000000000001 /* SettingsWindowController.swift */; };
+		F60001000000000000000002 /* RecoverySystemTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F60002000000000000000002 /* RecoverySystemTests.swift */; };
+		F60001000000000000000001 /* RecoveryStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = F60002000000000000000001 /* RecoveryStatus.swift */; };
+		F30001000000000000000001 /* ApplicationInstanceLock.swift in Sources */ = {isa = PBXBuildFile; fileRef = F30002000000000000000001 /* ApplicationInstanceLock.swift */; };
+		F30001000000000000000002 /* ApplicationInstanceLockTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F30002000000000000000002 /* ApplicationInstanceLockTests.swift */; };
 		F10001000000000000000001 /* FunctionKeySettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10002000000000000000001 /* FunctionKeySettingsTests.swift */; };
 		EF0001000000000000000018 /* SettingsTestDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF0002000000000000000018 /* SettingsTestDriver.swift */; };
 		EE000E000000000000000021 /* PerceptionCore in Frameworks */ = {isa = PBXBuildFile; productRef = EE000C000000000000000021 /* PerceptionCore */; };
@@ -43,7 +48,7 @@
 		BB000100000000000000000C /* SettingsWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000200000000000000000C /* SettingsWindow.swift */; };
 		BB000100000000000000000D /* ShortcutsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000200000000000000000D /* ShortcutsSettingsView.swift */; };
 		BB000100000000000000000E /* AppsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000200000000000000000E /* AppsSettingsView.swift */; };
-		BB000100000000000000000F /* AppPickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000200000000000000000F /* AppPickerSheet.swift */; };
+		BB000100000000000000000F /* AppPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000200000000000000000F /* AppPickerView.swift */; };
 		BB0001000000000000000010 /* MouseSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0002000000000000000010 /* MouseSettingsView.swift */; };
 		BB0001000000000000000011 /* SystemSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0002000000000000000011 /* SystemSettingsView.swift */; };
 		BB0001000000000000000015 /* GestureEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0002000000000000000015 /* GestureEntry.swift */; };
@@ -82,6 +87,71 @@
 		EE000D000000000000000012 /* IssueReporting in Frameworks */ = {isa = PBXBuildFile; productRef = EE000B000000000000000012 /* IssueReporting */; };
 		EE000E000000000000000012 /* IssueReporting in Frameworks */ = {isa = PBXBuildFile; productRef = EE000C000000000000000012 /* IssueReporting */; };
 		EE000E000000000000000013 /* ConcurrencyExtras in Frameworks */ = {isa = PBXBuildFile; productRef = EE000C000000000000000013 /* ConcurrencyExtras */; };
+		F40000000000000000000002 /* FunctionKeyState.swift in Sources */ = {isa = PBXBuildFile; fileRef = F40000000000000000000001 /* FunctionKeyState.swift */; };
+		F40000000000000000000004 /* RecoveryAgentFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = F40000000000000000000003 /* RecoveryAgentFiles.swift */; };
+		F40000000000000000000006 /* CrashRecoveryProtection.swift in Sources */ = {isa = PBXBuildFile; fileRef = F40000000000000000000005 /* CrashRecoveryProtection.swift */; };
+		F40000000000000000000008 /* RecoveryController+System.swift in Sources */ = {isa = PBXBuildFile; fileRef = F40000000000000000000007 /* RecoveryController+System.swift */; };
+		F4000000000000000000000A /* RecoveryKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = F40000000000000000000009 /* RecoveryKit.swift */; };
+		F4000000000000000000000F /* RecoveryMain.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4000000000000000000000B /* RecoveryMain.swift */; };
+		F40000000000000000000010 /* RecoveryLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4000000000000000000000C /* RecoveryLog.swift */; };
+		F40000000000000000000011 /* RecoveryFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4000000000000000000000D /* RecoveryFixture.swift */; };
+		F40000000000000000000012 /* StateJournal.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0002000000000000000007 /* StateJournal.swift */; };
+		F40000000000000000000013 /* SettingsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0002000000000000000005 /* SettingsManager.swift */; };
+		F40000000000000000000014 /* RecoveryController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD0002000000000000000001 /* RecoveryController.swift */; };
+		F40000000000000000000015 /* ApplicationInstanceLock.swift in Sources */ = {isa = PBXBuildFile; fileRef = F30002000000000000000001 /* ApplicationInstanceLock.swift */; };
+		F40000000000000000000016 /* PowerManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0002000000000000000023 /* PowerManager.swift */; };
+		F40000000000000000000017 /* RefreshRateLock.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0002000000000000000022 /* RefreshRateLock.swift */; };
+		F40000000000000000000018 /* GameModeConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0002000000000000000008 /* GameModeConfig.swift */; };
+		F40000000000000000000019 /* MonitoredApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0002000000000000000009 /* MonitoredApp.swift */; };
+		F4000000000000000000001A /* ShortcutEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000200000000000000000A /* ShortcutEntry.swift */; };
+		F4000000000000000000001B /* GestureEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0002000000000000000015 /* GestureEntry.swift */; };
+		F4000000000000000000001C /* AppHotkey.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0002000000000000000016 /* AppHotkey.swift */; };
+		F4000000000000000000001D /* KeyCodeMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0002000000000000000017 /* KeyCodeMap.swift */; };
+		F4000000000000000000001E /* DisplayConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0002000000000000000021 /* DisplayConfig.swift */; };
+		F4000000000000000000001F /* SymbolicHotkeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000200000000000000000B /* SymbolicHotkeys.swift */; };
+		F40000000000000000000020 /* LogLevel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB000200000000000000001E /* LogLevel.swift */; };
+		F40000000000000000000021 /* FunctionKeyState.swift in Sources */ = {isa = PBXBuildFile; fileRef = F40000000000000000000001 /* FunctionKeyState.swift */; };
+		F40000000000000000000022 /* RecoveryAgentFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = F40000000000000000000003 /* RecoveryAgentFiles.swift */; };
+		F40000000000000000000023 /* CrashRecoveryProtection.swift in Sources */ = {isa = PBXBuildFile; fileRef = F40000000000000000000005 /* CrashRecoveryProtection.swift */; };
+		F40000000000000000000024 /* RecoveryController+System.swift in Sources */ = {isa = PBXBuildFile; fileRef = F40000000000000000000007 /* RecoveryController+System.swift */; };
+		F40000000000000000000025 /* RecoveryKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = F40000000000000000000009 /* RecoveryKit.swift */; };
+		F40000000000000000000031 /* GameModeRecovery in Copy Helper */ = {isa = PBXBuildFile; fileRef = F40000000000000000000026; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		F40000000000000000000032 /* Recovery plist in Copy Agent */ = {isa = PBXBuildFile; fileRef = F4000000000000000000000E; };
+		F50001000000000000000001 /* RecoverySettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = F50002000000000000000001; };
+		F50001000000000000000002 /* RecoveryProtectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F50002000000000000000002; };
+		F70000000000000000000002 = {isa = PBXBuildFile; fileRef = F70000000000000000000001; };
+		F70000000000000000000003 = {isa = PBXBuildFile; fileRef = F70000000000000000000001; };
+		F70000000000000000000005 = {isa = PBXBuildFile; fileRef = F70000000000000000000004; };
+		F70000000000000000000007 = {isa = PBXBuildFile; fileRef = F70000000000000000000006; };
+		F70000000000000000000009 = {isa = PBXBuildFile; fileRef = F70000000000000000000008; };
+		F70000000000000000000016 = {isa = PBXBuildFile; fileRef = F4000000000000000000000C; };
+		F70000000000000000000017 = {isa = PBXBuildFile; fileRef = BB0002000000000000000007; };
+		F70000000000000000000018 = {isa = PBXBuildFile; fileRef = BB0002000000000000000005; };
+		F70000000000000000000019 = {isa = PBXBuildFile; fileRef = DD0002000000000000000001; };
+		F7000000000000000000001A = {isa = PBXBuildFile; fileRef = F30002000000000000000001; };
+		F7000000000000000000001B = {isa = PBXBuildFile; fileRef = BB0002000000000000000023; };
+		F7000000000000000000001C = {isa = PBXBuildFile; fileRef = BB0002000000000000000022; };
+		F7000000000000000000001D = {isa = PBXBuildFile; fileRef = BB0002000000000000000008; };
+		F7000000000000000000001E = {isa = PBXBuildFile; fileRef = BB0002000000000000000009; };
+		F7000000000000000000001F = {isa = PBXBuildFile; fileRef = BB000200000000000000000A; };
+		F70000000000000000000020 = {isa = PBXBuildFile; fileRef = BB0002000000000000000015; };
+		F70000000000000000000021 = {isa = PBXBuildFile; fileRef = BB0002000000000000000016; };
+		F70000000000000000000022 = {isa = PBXBuildFile; fileRef = BB0002000000000000000017; };
+		F70000000000000000000023 = {isa = PBXBuildFile; fileRef = BB0002000000000000000021; };
+		F70000000000000000000024 = {isa = PBXBuildFile; fileRef = BB000200000000000000000B; };
+		F70000000000000000000025 = {isa = PBXBuildFile; fileRef = BB000200000000000000001E; };
+		F70000000000000000000026 = {isa = PBXBuildFile; fileRef = F40000000000000000000001; };
+		F70000000000000000000027 = {isa = PBXBuildFile; fileRef = F40000000000000000000003; };
+		F70000000000000000000028 = {isa = PBXBuildFile; fileRef = F40000000000000000000005; };
+		F70000000000000000000029 = {isa = PBXBuildFile; fileRef = F40000000000000000000007; };
+		F7000000000000000000002A = {isa = PBXBuildFile; fileRef = F40000000000000000000009; };
+		F7000000000000000000002B = {isa = PBXBuildFile; fileRef = F70000000000000000000001; };
+		F7000000000000000000002C = {isa = PBXBuildFile; fileRef = F70000000000000000000004; };
+		F7000000000000000000002D = {isa = PBXBuildFile; fileRef = F70000000000000000000006; };
+		F7000000000000000000002F = {isa = PBXBuildFile; fileRef = F7000000000000000000002E; };
+		F70000000000000000000030 = {isa = PBXBuildFile; fileRef = ADDCA16A2F6E2ADA002C2D4F; };
+		F70000000000000000000013 = {isa = PBXBuildFile; fileRef = F7000000000000000000000B; settings = { ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy,); }; };
+		F80000000000000000000001 = {isa = PBXBuildFile; fileRef = F80000000000000000000002; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -92,9 +162,22 @@
 			remoteGlobalIDString = BB0005000000000000000001;
 			remoteInfo = GameMode;
 		};
+		F4000000000000000000002D /* PBXContainerItemProxy */ = {isa = PBXContainerItemProxy; containerPortal = BB0008000000000000000001; proxyType = 1; remoteGlobalIDString = F40000000000000000000027; remoteInfo = GameModeRecovery; };
+		F70000000000000000000014 = {isa = PBXContainerItemProxy; containerPortal = BB0008000000000000000001; proxyType = 1; remoteGlobalIDString = F7000000000000000000000A; remoteInfo = GameModeRecoveryApp; };
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		F4000000000000000000002F /* Copy Recovery Helper */ = {isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstPath = "$(CONTENTS_FOLDER_PATH)/MacOS"; dstSubfolderSpec = 16; files = (F40000000000000000000031, ); name = "Copy Recovery Helper"; runOnlyForDeploymentPostprocessing = 0; };
+		F40000000000000000000030 /* Copy Recovery Agent */ = {isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstPath = "$(CONTENTS_FOLDER_PATH)/Library/LaunchAgents"; dstSubfolderSpec = 16; files = (F40000000000000000000032, ); name = "Copy Recovery Agent"; runOnlyForDeploymentPostprocessing = 0; };
+		F70000000000000000000012 = {isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstSubfolderSpec = 16; dstPath = "$(CONTENTS_FOLDER_PATH)/Helpers"; files = (F70000000000000000000013,); name = "Copy Recovery App"; runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		F90002000000000000000001 /* SettingsWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowController.swift; sourceTree = "<group>"; };
+		F60002000000000000000002 /* RecoverySystemTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoverySystemTests.swift; sourceTree = "<group>"; };
+		F60002000000000000000001 /* RecoveryStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoveryStatus.swift; sourceTree = "<group>"; };
+		F30002000000000000000001 /* ApplicationInstanceLock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationInstanceLock.swift; sourceTree = "<group>"; };
+		F30002000000000000000002 /* ApplicationInstanceLockTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationInstanceLockTests.swift; sourceTree = "<group>"; };
 		F20002000000000000000001 /* FeatureFlags.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config/FeatureFlags.xcconfig; sourceTree = SOURCE_ROOT; };
 		F10002000000000000000001 /* FunctionKeySettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FunctionKeySettingsTests.swift; sourceTree = "<group>"; };
 		EF0002000000000000000018 /* SettingsTestDriver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsTestDriver.swift; sourceTree = "<group>"; };
@@ -126,7 +209,7 @@
 		BB000200000000000000000C /* SettingsWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindow.swift; sourceTree = "<group>"; };
 		BB000200000000000000000D /* ShortcutsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutsSettingsView.swift; sourceTree = "<group>"; };
 		BB000200000000000000000E /* AppsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppsSettingsView.swift; sourceTree = "<group>"; };
-		BB000200000000000000000F /* AppPickerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppPickerSheet.swift; sourceTree = "<group>"; };
+		BB000200000000000000000F /* AppPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppPickerView.swift; sourceTree = "<group>"; };
 		BB0002000000000000000010 /* MouseSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MouseSettingsView.swift; sourceTree = "<group>"; };
 		BB0002000000000000000011 /* SystemSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemSettingsView.swift; sourceTree = "<group>"; };
 		BB0002000000000000000012 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -160,6 +243,25 @@
 		DD0002000000000000000003 /* RecoveryControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoveryControllerTests.swift; sourceTree = "<group>"; };
 		DD0002000000000000000004 /* SettingsPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsPresentationTests.swift; sourceTree = "<group>"; };
 		DD0002000000000000000005 /* AppWindowPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppWindowPresentation.swift; sourceTree = "<group>"; };
+		F40000000000000000000001 /* FunctionKeyState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FunctionKeyState.swift"; sourceTree = "<group>"; };
+		F40000000000000000000003 /* RecoveryAgentFiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RecoveryAgentFiles.swift"; sourceTree = "<group>"; };
+		F40000000000000000000005 /* CrashRecoveryProtection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CrashRecoveryProtection.swift"; sourceTree = "<group>"; };
+		F40000000000000000000007 /* RecoveryController+System.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RecoveryController+System.swift"; sourceTree = "<group>"; };
+		F40000000000000000000009 /* RecoveryKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RecoveryKit.swift"; sourceTree = "<group>"; };
+		F4000000000000000000000B /* RecoveryMain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GameModeRecovery/RecoveryMain.swift"; sourceTree = "<group>"; };
+		F4000000000000000000000C /* RecoveryLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GameModeRecovery/RecoveryLog.swift"; sourceTree = "<group>"; };
+		F4000000000000000000000D /* RecoveryFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GameModeRecovery/RecoveryFixture.swift"; sourceTree = "<group>"; };
+		F4000000000000000000000E /* com.moshyn.nikita.GameMode.Recovery.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "GameModeRecovery/com.moshyn.nikita.GameMode.Recovery.plist"; sourceTree = "<group>"; };
+		F40000000000000000000026 /* GameModeRecovery */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; path = GameModeRecovery; sourceTree = BUILT_PRODUCTS_DIR; };
+		F50002000000000000000001 /* RecoverySettingsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoverySettingsSection.swift; sourceTree = "<group>"; };
+		F50002000000000000000002 /* RecoveryProtectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoveryProtectionTests.swift; sourceTree = "<group>"; };
+		F70000000000000000000001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RecoveryBackup.swift"; sourceTree = "<group>"; };
+		F70000000000000000000004 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RecoveryFilePanels.swift"; sourceTree = "<group>"; };
+		F70000000000000000000006 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RecoveryContentView.swift"; sourceTree = "<group>"; };
+		F70000000000000000000008 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RecoverySettingsView.swift"; sourceTree = "<group>"; };
+		F7000000000000000000000B = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "GameMode Recovery.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		F7000000000000000000002E = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameModeRecovery/RecoveryToolApp.swift; sourceTree = "<group>"; };
+		F80000000000000000000002 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoveryBackupTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -192,6 +294,8 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		F40000000000000000000029 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		F7000000000000000000000D = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXResourcesBuildPhase section */
@@ -203,12 +307,17 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		F7000000000000000000000E = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = ( F70000000000000000000030,); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXGroup section */
 		BB0004000000000000000001 = {
 			isa = PBXGroup;
-			children = (
+			children = ( F7000000000000000000002E,
+				F4000000000000000000000E /* com.moshyn.nikita.GameMode.Recovery.plist */,
+				F4000000000000000000000D /* RecoveryFixture.swift */,
+				F4000000000000000000000C /* RecoveryLog.swift */,
+				F4000000000000000000000B /* RecoveryMain.swift */,
 				F20002000000000000000001 /* FeatureFlags.xcconfig */,
 				BB0004000000000000000002 /* GameMode */,
 				CC0004000000000000000001 /* GameModeTests */,
@@ -232,7 +341,8 @@
 		};
 		BB0004000000000000000003 /* Products */ = {
 			isa = PBXGroup;
-			children = (
+			children = ( F7000000000000000000000B,
+				F40000000000000000000026 /* GameModeRecovery */,
 				BB0002000000000000000014 /* GameMode.app */,
 				CC0002000000000000000008 /* GameModeTests.xctest */,
 			);
@@ -251,12 +361,17 @@
 		};
 		BB0004000000000000000005 /* Core */ = {
 			isa = PBXGroup;
-			children = (
+			children = ( F70000000000000000000004,
+				F40000000000000000000009 /* RecoveryKit.swift */,
+				F40000000000000000000007 /* RecoveryController+System.swift */,
+				F40000000000000000000005 /* CrashRecoveryProtection.swift */,
+				F40000000000000000000003 /* RecoveryAgentFiles.swift */,
 				EE0002000000000000000001 /* GameSession.swift */,
 				EF0002000000000000000002 /* SettingsClient.swift */,
 				EF0002000000000000000001 /* AppSettings.swift */,
 				EF0002000000000000000011 /* ApplicationPicker.swift */,
 				EF0002000000000000000014 /* GameEngineClient.swift */,
+				F30002000000000000000001 /* ApplicationInstanceLock.swift */,
 				EF0002000000000000000015 /* AppPlatformClient.swift */,
 				EF0002000000000000000016 /* GameModeFeature.swift */,
 				EF0002000000000000000017 /* ShortcutRecordingClient.swift */,
@@ -276,7 +391,9 @@
 		};
 		BB0004000000000000000006 /* Models */ = {
 			isa = PBXGroup;
-			children = (
+			children = ( F70000000000000000000001,
+				F40000000000000000000001 /* FunctionKeyState.swift */,
+				F60002000000000000000001 /* RecoveryStatus.swift */,
 				BB0002000000000000000008 /* GameModeConfig.swift */,
 				EF0002000000000000000012 /* SettingsSection.swift */,
 				BB0002000000000000000009 /* MonitoredApp.swift */,
@@ -293,12 +410,14 @@
 		};
 		BB0004000000000000000007 /* Views */ = {
 			isa = PBXGroup;
-			children = (
+			children = ( F70000000000000000000008, F70000000000000000000006,
+				F50002000000000000000001 /* RecoverySettingsSection.swift */,
+				F90002000000000000000001 /* SettingsWindowController.swift */,
 				BB000200000000000000000C /* SettingsWindow.swift */,
 				DD0002000000000000000002 /* MenuToggleRow.swift */,
 				BB000200000000000000000D /* ShortcutsSettingsView.swift */,
 				BB000200000000000000000E /* AppsSettingsView.swift */,
-				BB000200000000000000000F /* AppPickerSheet.swift */,
+				BB000200000000000000000F /* AppPickerView.swift */,
 				BB0002000000000000000010 /* MouseSettingsView.swift */,
 				BB0002000000000000000011 /* SystemSettingsView.swift */,
 				BB0002000000000000000019 /* ShortcutRecorderView.swift */,
@@ -314,6 +433,8 @@
 		CC0004000000000000000001 /* GameModeTests */ = {
 			isa = PBXGroup;
 			children = (
+				F80000000000000000000002,
+				F50002000000000000000002 /* RecoveryProtectionTests.swift */,
 				CC0002000000000000000001 /* MonitoredAppTests.swift */,
 				CC0002000000000000000002 /* GameModeConfigTests.swift */,
 				CC0002000000000000000003 /* AppHotkeyTests.swift */,
@@ -323,10 +444,12 @@
 				CC0002000000000000000007 /* StateJournalTests.swift */,
 				DD0002000000000000000004 /* SettingsPresentationTests.swift */,
 				DD0002000000000000000003 /* RecoveryControllerTests.swift */,
+				F60002000000000000000002 /* RecoverySystemTests.swift */,
 				EE0002000000000000000003 /* GameSessionTests.swift */,
 				EF0002000000000000000003 /* AppSettingsTests.swift */,
 				EF0002000000000000000019 /* GameModeFeatureTests.swift */,
 				F10002000000000000000001 /* FunctionKeySettingsTests.swift */,
+				F30002000000000000000002 /* ApplicationInstanceLockTests.swift */,
 				EF0002000000000000000018 /* SettingsTestDriver.swift */,
 				EF0002000000000000000013 /* SettingsNavigationTests.swift */,
 			);
@@ -339,14 +462,17 @@
 		BB0005000000000000000001 /* GameMode */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = BB0007000000000000000002 /* Build configuration list for PBXNativeTarget "GameMode" */;
-			buildPhases = (
+			buildPhases = ( F70000000000000000000012,
+				F4000000000000000000002F /* Copy Recovery Helper */,
+				F40000000000000000000030 /* Copy Recovery Agent */,
 				BB0006000000000000000001 /* Sources */,
 				BB0003000000000000000001 /* Frameworks */,
 				BB000A000000000000000001 /* Resources */,
 			);
 			buildRules = (
 			);
-			dependencies = (
+			dependencies = ( F70000000000000000000015,
+				F4000000000000000000002E /* PBXTargetDependency */,
 			);
 			name = GameMode;
 			packageProductDependencies = (
@@ -389,6 +515,8 @@
 			productReference = CC0002000000000000000008 /* GameModeTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		F40000000000000000000027 /* GameModeRecovery */ = {isa = PBXNativeTarget; buildConfigurationList = F4000000000000000000002C; buildPhases = (F40000000000000000000028, F40000000000000000000029, ); buildRules = (); dependencies = (); name = GameModeRecovery; productName = GameModeRecovery; productReference = F40000000000000000000026; productType = "com.apple.product-type.tool"; };
+		F7000000000000000000000A = {isa = PBXNativeTarget; buildConfigurationList = F7000000000000000000000F; buildPhases = (F7000000000000000000000C, F7000000000000000000000D, F7000000000000000000000E,); buildRules = (); dependencies = (); name = GameModeRecoveryApp; productName = "GameMode Recovery"; productReference = F7000000000000000000000B; productType = "com.apple.product-type.application"; };
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -421,7 +549,8 @@
 			productRefGroup = BB0004000000000000000003 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
-			targets = (
+			targets = ( F7000000000000000000000A,
+				F40000000000000000000027 /* GameModeRecovery */,
 				BB0005000000000000000001 /* GameMode */,
 				CC0005000000000000000001 /* GameModeTests */,
 			);
@@ -432,7 +561,14 @@
 		BB0006000000000000000001 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
-			files = (
+			files = ( F70000000000000000000009, F70000000000000000000007, F70000000000000000000005, F70000000000000000000002,
+				F50001000000000000000001 /* RecoverySettingsSection.swift in Sources */,
+				F4000000000000000000000A /* RecoveryKit.swift in Sources */,
+				F40000000000000000000008 /* RecoveryController+System.swift in Sources */,
+				F40000000000000000000006 /* CrashRecoveryProtection.swift in Sources */,
+				F40000000000000000000004 /* RecoveryAgentFiles.swift in Sources */,
+				F40000000000000000000002 /* FunctionKeyState.swift in Sources */,
+				F60001000000000000000001 /* RecoveryStatus.swift in Sources */,
 				BB0001000000000000000001 /* GameModeApp.swift in Sources */,
 				BB0001000000000000000002 /* AppDelegate.swift in Sources */,
 				DD0001000000000000000005 /* AppWindowPresentation.swift in Sources */,
@@ -442,6 +578,7 @@
 				EF0001000000000000000012 /* SettingsSection.swift in Sources */,
 				EF0001000000000000000011 /* ApplicationPicker.swift in Sources */,
 				EF0001000000000000000014 /* GameEngineClient.swift in Sources */,
+				F30001000000000000000001 /* ApplicationInstanceLock.swift in Sources */,
 				EF0001000000000000000015 /* AppPlatformClient.swift in Sources */,
 				EF0001000000000000000016 /* GameModeFeature.swift in Sources */,
 				EF0001000000000000000017 /* ShortcutRecordingClient.swift in Sources */,
@@ -455,11 +592,12 @@
 				BB0001000000000000000009 /* MonitoredApp.swift in Sources */,
 				BB000100000000000000000A /* ShortcutEntry.swift in Sources */,
 				BB000100000000000000000B /* SymbolicHotkeys.swift in Sources */,
+				F90001000000000000000001 /* SettingsWindowController.swift in Sources */,
 				BB000100000000000000000C /* SettingsWindow.swift in Sources */,
 				DD0001000000000000000002 /* MenuToggleRow.swift in Sources */,
 				BB000100000000000000000D /* ShortcutsSettingsView.swift in Sources */,
 				BB000100000000000000000E /* AppsSettingsView.swift in Sources */,
-				BB000100000000000000000F /* AppPickerSheet.swift in Sources */,
+				BB000100000000000000000F /* AppPickerView.swift in Sources */,
 				BB0001000000000000000010 /* MouseSettingsView.swift in Sources */,
 				BB0001000000000000000011 /* SystemSettingsView.swift in Sources */,
 				BB0001000000000000000015 /* GestureEntry.swift in Sources */,
@@ -484,6 +622,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F80000000000000000000001,
+				F50001000000000000000002 /* RecoveryProtectionTests.swift in Sources */,
 				CC0001000000000000000001 /* MonitoredAppTests.swift in Sources */,
 				CC0001000000000000000002 /* GameModeConfigTests.swift in Sources */,
 				CC0001000000000000000003 /* AppHotkeyTests.swift in Sources */,
@@ -493,15 +633,19 @@
 				CC0001000000000000000007 /* StateJournalTests.swift in Sources */,
 				DD0001000000000000000004 /* SettingsPresentationTests.swift in Sources */,
 				DD0001000000000000000003 /* RecoveryControllerTests.swift in Sources */,
+				F60001000000000000000002 /* RecoverySystemTests.swift in Sources */,
 				EE0001000000000000000003 /* GameSessionTests.swift in Sources */,
 				EF0001000000000000000003 /* AppSettingsTests.swift in Sources */,
 				EF0001000000000000000019 /* GameModeFeatureTests.swift in Sources */,
 				F10001000000000000000001 /* FunctionKeySettingsTests.swift in Sources */,
+				F30001000000000000000002 /* ApplicationInstanceLockTests.swift in Sources */,
 				EF0001000000000000000018 /* SettingsTestDriver.swift in Sources */,
 				EF0001000000000000000013 /* SettingsNavigationTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		F40000000000000000000028 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = ( F70000000000000000000003,F4000000000000000000000F, F40000000000000000000010, F40000000000000000000011, F40000000000000000000012, F40000000000000000000013, F40000000000000000000014, F40000000000000000000015, F40000000000000000000016, F40000000000000000000017, F40000000000000000000018, F40000000000000000000019, F4000000000000000000001A, F4000000000000000000001B, F4000000000000000000001C, F4000000000000000000001D, F4000000000000000000001E, F4000000000000000000001F, F40000000000000000000020, F40000000000000000000021, F40000000000000000000022, F40000000000000000000023, F40000000000000000000024, F40000000000000000000025, ); runOnlyForDeploymentPostprocessing = 0; };
+		F7000000000000000000000C = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = ( F7000000000000000000002F, F7000000000000000000002D, F7000000000000000000002C, F7000000000000000000002B, F7000000000000000000002A, F70000000000000000000029, F70000000000000000000028, F70000000000000000000027, F70000000000000000000026, F70000000000000000000025, F70000000000000000000024, F70000000000000000000023, F70000000000000000000022, F70000000000000000000021, F70000000000000000000020, F7000000000000000000001F, F7000000000000000000001E, F7000000000000000000001D, F7000000000000000000001C, F7000000000000000000001B, F7000000000000000000001A, F70000000000000000000019, F70000000000000000000018, F70000000000000000000017, F70000000000000000000016,); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -510,6 +654,8 @@
 			target = BB0005000000000000000001 /* GameMode */;
 			targetProxy = CC000C000000000000000001 /* PBXContainerItemProxy */;
 		};
+		F4000000000000000000002E /* PBXTargetDependency */ = {isa = PBXTargetDependency; target = F40000000000000000000027; targetProxy = F4000000000000000000002D; };
+		F70000000000000000000015 = {isa = PBXTargetDependency; target = F7000000000000000000000A; targetProxy = F70000000000000000000014; };
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
@@ -716,6 +862,10 @@
 			};
 			name = Release;
 		};
+		F4000000000000000000002A /* Debug */ = {isa = XCBuildConfiguration; baseConfigurationReference = F20002000000000000000001 /* FeatureFlags.xcconfig */; buildSettings = {CODE_SIGN_STYLE = Automatic; DEVELOPMENT_TEAM = VJPQWNYP29; ENABLE_HARDENED_RUNTIME = YES; ENABLE_APP_SANDBOX = NO; PRODUCT_NAME = "$(TARGET_NAME)"; PRODUCT_BUNDLE_IDENTIFIER = com.moshyn.nikita.GameMode.Recovery; CREATE_INFOPLIST_SECTION_IN_BINARY = YES; INFOPLIST_FILE = GameModeRecovery/Info.plist; GENERATE_INFOPLIST_FILE = NO; MACOSX_DEPLOYMENT_TARGET = 14.0; SWIFT_VERSION = 5.0; SKIP_INSTALL = YES; }; name = Debug; };
+		F4000000000000000000002B /* Release */ = {isa = XCBuildConfiguration; baseConfigurationReference = F20002000000000000000001 /* FeatureFlags.xcconfig */; buildSettings = {CODE_SIGN_STYLE = Manual; CODE_SIGN_IDENTITY = "Developer ID Application"; PROVISIONING_PROFILE_SPECIFIER = ""; DEVELOPMENT_TEAM = VJPQWNYP29; ENABLE_HARDENED_RUNTIME = YES; ENABLE_APP_SANDBOX = NO; PRODUCT_NAME = "$(TARGET_NAME)"; PRODUCT_BUNDLE_IDENTIFIER = com.moshyn.nikita.GameMode.Recovery; CREATE_INFOPLIST_SECTION_IN_BINARY = YES; INFOPLIST_FILE = GameModeRecovery/Info.plist; GENERATE_INFOPLIST_FILE = NO; MACOSX_DEPLOYMENT_TARGET = 14.0; SWIFT_VERSION = 5.0; SKIP_INSTALL = YES; }; name = Release; };
+		F70000000000000000000010 = {isa = XCBuildConfiguration; baseConfigurationReference = F20002000000000000000001 /* FeatureFlags.xcconfig */; buildSettings = {PRODUCT_NAME = "GameMode Recovery"; EXECUTABLE_NAME = GameModeRecoveryApp; PRODUCT_BUNDLE_IDENTIFIER = com.moshyn.nikita.GameMode.RecoveryTool; INFOPLIST_FILE = "GameModeRecovery/RecoveryApp-Info.plist"; GENERATE_INFOPLIST_FILE = NO; MACOSX_DEPLOYMENT_TARGET = 14.0; SWIFT_VERSION = 5.0; ENABLE_HARDENED_RUNTIME = YES; ENABLE_APP_SANDBOX = NO; SKIP_INSTALL = YES; DEVELOPMENT_TEAM = VJPQWNYP29; ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; MARKETING_VERSION = 1.0; CURRENT_PROJECT_VERSION = 1; CODE_SIGN_STYLE = Automatic; }; name = Debug; };
+		F70000000000000000000011 = {isa = XCBuildConfiguration; baseConfigurationReference = F20002000000000000000001 /* FeatureFlags.xcconfig */; buildSettings = {PRODUCT_NAME = "GameMode Recovery"; EXECUTABLE_NAME = GameModeRecoveryApp; PRODUCT_BUNDLE_IDENTIFIER = com.moshyn.nikita.GameMode.RecoveryTool; INFOPLIST_FILE = "GameModeRecovery/RecoveryApp-Info.plist"; GENERATE_INFOPLIST_FILE = NO; MACOSX_DEPLOYMENT_TARGET = 14.0; SWIFT_VERSION = 5.0; ENABLE_HARDENED_RUNTIME = YES; ENABLE_APP_SANDBOX = NO; SKIP_INSTALL = YES; DEVELOPMENT_TEAM = VJPQWNYP29; ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; MARKETING_VERSION = 1.0; CURRENT_PROJECT_VERSION = 1; CODE_SIGN_STYLE = Manual; CODE_SIGN_IDENTITY = "Developer ID Application"; PROVISIONING_PROFILE_SPECIFIER = ""; }; name = Release; };
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -746,6 +896,8 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		F4000000000000000000002C /* Build configuration list for GameModeRecovery */ = {isa = XCConfigurationList; buildConfigurations = (F4000000000000000000002A, F4000000000000000000002B, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		F7000000000000000000000F = {isa = XCConfigurationList; buildConfigurations = (F70000000000000000000010, F70000000000000000000011,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */

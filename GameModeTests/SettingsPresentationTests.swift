@@ -11,10 +11,139 @@ import Combine
 import ComposableArchitecture
 import SwiftUI
 import ConcurrencyExtras
+import Observation
 import XCTest
 @testable import GameMode
 
+@MainActor
+@Observable
+private final class DisclosureTestState {
+    var expanded = false
+    var enabled = false
+}
+
+private struct HitTestProbe: NSViewRepresentable {
+    var name: String
+    func makeNSView(context: Context) -> ProbeView { let view = ProbeView(); view.identifier = .init(name); return view }
+    func updateNSView(_ nsView: ProbeView, context: Context) {}
+
+    final class ProbeView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    }
+}
+
 final class SettingsPresentationTests: XCTestCase {
+    @MainActor
+    func testDisclosureHeaderAcceptsClicksAcrossTheRowWithoutInterceptingContent() throws {
+        let state = DisclosureTestState()
+        let root = Form {
+            DisclosureGroup(isExpanded: Binding(get: { state.expanded }, set: { state.expanded = $0 })) {
+                Toggle("Revealed Setting", isOn: Binding(get: { state.enabled }, set: { state.enabled = $0 }))
+                    .toggleStyle(.checkbox)
+                    .background(HitTestProbe(name: "content"))
+            } label: {
+                Text("Application Details")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(HitTestProbe(name: "header"))
+            }
+        }
+        .formStyle(.grouped)
+        .disclosureGroupStyle(SettingsDisclosureGroupStyle())
+        let window = NSWindow(contentViewController: NSHostingController(rootView: root))
+        window.isReleasedWhenClosed = false
+        window.setContentSize(NSSize(width: 600, height: 300))
+        window.setFrameOrigin(NSPoint(x: -10000, y: -10000))
+        window.orderBack(nil)
+        window.makeKey()
+        defer { window.orderOut(nil); window.close() }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.15))
+        let view = try XCTUnwrap(window.contentView)
+        let header = try XCTUnwrap(findHitTestProbe(in: view, name: "header"))
+        let frame = window.convertToScreen(header.convert(header.bounds, to: nil))
+        XCTAssertGreaterThan(frame.width, 500, "The label and blank space span the whole header")
+        for (fraction, offset) in [(CGFloat(0.95), CGFloat(-18)), (0.25, 0), (0.5, 18)] {
+            try click(window, screenPoint: NSPoint(x: frame.minX + frame.width * fraction, y: frame.midY + offset))
+            XCTAssertTrue(state.expanded, "Clicking the label or blank part of the row must expand it")
+            let content = try XCTUnwrap(findHitTestProbe(in: view, name: "content"))
+            let contentFrame = window.convertToScreen(content.convert(content.bounds, to: nil))
+            let previous = state.enabled
+            try click(window, screenPoint: NSPoint(x: contentFrame.minX + 8, y: contentFrame.midY))
+            XCTAssertNotEqual(state.enabled, previous)
+            XCTAssertTrue(state.expanded, "Using a revealed setting must not collapse the section")
+            try click(window, screenPoint: NSPoint(x: frame.minX - 12, y: frame.midY))
+            XCTAssertFalse(state.expanded, "The chevron remains part of the same button")
+        }
+    }
+
+    @MainActor
+    func testNativeHotkeyTableUsesCheckboxesAndKeyboardEditingWithoutChangingOtherRows() throws {
+        var enabled: [(String, Bool)] = []
+        var recorded: [String] = []
+        var cleared: [String] = []
+        let root = ShortcutRecorderView(hotkeys: AppHotkey.defaults, recordingHotkeyID: nil, isEnabled: true, onEnable: { enabled.append(($0, $1)) }, onRecord: { recorded.append($0) }, onClear: { cleared.append($0) }, onStopRecording: {})
+        let window = NSWindow(contentViewController: NSHostingController(rootView: root))
+        window.isReleasedWhenClosed = false
+        window.setContentSize(NSSize(width: 600, height: 72))
+        window.setFrameOrigin(NSPoint(x: -10000, y: -10000))
+        window.orderBack(nil)
+        window.makeKey()
+        defer { window.orderOut(nil); window.close() }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.15))
+        let table = try XCTUnwrap(findHotkeyTable(in: try XCTUnwrap(window.contentView)))
+        XCTAssertEqual(table.numberOfRows, 3)
+        XCTAssertNil(table.headerView)
+        XCTAssertEqual(table.rowHeight, 24)
+        let cell = try XCTUnwrap(table.view(atColumn: 0, row: 1, makeIfNecessary: true))
+        let checkbox = try XCTUnwrap(cell.subviews.first as? NSButton)
+        XCTAssertEqual(checkbox.state, .off)
+        checkbox.performClick(nil)
+        XCTAssertEqual(enabled.map(\.0), [AppHotkey.defaults[1].id])
+        XCTAssertEqual(enabled.map(\.1), [true])
+        table.selectRowIndexes(IndexSet(integer: 2), byExtendingSelection: false)
+        for code in [UInt16(36), 51] {
+            table.keyDown(with: try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: code)))
+        }
+        XCTAssertEqual(recorded, [AppHotkey.defaults[2].id])
+        XCTAssertEqual(cleared, [AppHotkey.defaults[2].id])
+        let shortcutCell = try XCTUnwrap(table.view(atColumn: 2, row: 1, makeIfNecessary: true) as? NSTableCellView)
+        XCTAssertEqual(shortcutCell.textField?.stringValue, "none")
+        XCTAssertEqual(shortcutCell.textField?.alignment, .right)
+        let keyRect = table.frameOfCell(atColumn: 2, row: 0)
+        XCTAssertEqual(table.row(at: NSPoint(x: keyRect.midX, y: keyRect.midY)), 0)
+        let keyPoint = window.convertPoint(toScreen: table.convert(NSPoint(x: keyRect.midX, y: keyRect.midY), to: nil))
+        try click(window, screenPoint: keyPoint, count: 2)
+        XCTAssertEqual(recorded, [AppHotkey.defaults[2].id, AppHotkey.defaults[0].id], "Double-clicking the combination starts editing that row (clicked row \(table.clickedRow), column \(table.clickedColumn))")
+        let nameRect = table.frameOfCell(atColumn: 1, row: 1)
+        let namePoint = window.convertPoint(toScreen: table.convert(NSPoint(x: nameRect.midX, y: nameRect.midY), to: nil))
+        try click(window, screenPoint: namePoint, count: 2)
+        XCTAssertEqual(recorded.count, 2, "Double-clicking the action name does not edit its shortcut")
+    }
+
+    @MainActor
+    private func findHitTestProbe(in view: NSView, name: String) -> HitTestProbe.ProbeView? {
+        if let probe = view as? HitTestProbe.ProbeView, probe.identifier?.rawValue == name { return probe }
+        return view.subviews.lazy.compactMap { self.findHitTestProbe(in: $0, name: name) }.first
+    }
+
+    @MainActor
+    private func click(_ window: NSWindow, screenPoint: NSPoint, count: Int = 1) throws {
+        let point = window.convertPoint(fromScreen: screenPoint)
+        for press in 1...count {
+            let down = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: press * 2, clickCount: press, pressure: 1))
+            let up = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseUp, location: point, modifierFlags: [], timestamp: down.timestamp + 0.01, windowNumber: window.windowNumber, context: nil, eventNumber: press * 2 + 1, clickCount: press, pressure: 0))
+            NSApp.postEvent(up, atStart: true)
+            NSApp.sendEvent(down)
+            if let pending = NSApp.nextEvent(matching: .leftMouseUp, until: Date(), inMode: .default, dequeue: true) { NSApp.sendEvent(pending) }
+        }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+    }
+
+    @MainActor
+    private func findHotkeyTable(in view: NSView) -> ShortcutRecorderView.HotkeyTable? {
+        if let table = view as? ShortcutRecorderView.HotkeyTable { return table }
+        return view.subviews.lazy.compactMap { self.findHotkeyTable(in: $0) }.first
+    }
+
     override func record(_ issue: XCTIssue) {
         if issue.compactDescription.contains("Publishing changes from within view updates")
             || issue.compactDescription.contains("Modifying state during view update") {
@@ -121,8 +250,7 @@ final class SettingsPresentationTests: XCTestCase {
             detections.withValue { $0 += 1 }
             return detected.value
         })
-        let root = SettingsWindow(store: store.settingsStore)
-        let window = NSWindow(contentViewController: NSHostingController(rootView: root))
+        let window = SettingsWindowController(store: store.settingsStore).makeWindow()
         window.isReleasedWhenClosed = false
         window.setFrameOrigin(NSPoint(x: -10000, y: -10000))
         window.orderBack(nil)
@@ -164,7 +292,7 @@ final class SettingsPresentationTests: XCTestCase {
     }
 
     @MainActor
-    func testRapidNavigationAndRecoveryDismissTheApplicationSheet() async throws {
+    func testRapidNavigationAndRecoveryDismissTheApplicationPage() async throws {
         let suite = "GameMode.NavigationPresentation.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -176,7 +304,7 @@ final class SettingsPresentationTests: XCTestCase {
             $0.settingsViewClient = .previewValue
         }
         let store = root.scope(state: \.settings, action: \.settings)
-        let window = NSWindow(contentViewController: NSHostingController(rootView: SettingsWindow(store: store)))
+        let window = SettingsWindowController(store: store).makeWindow()
         window.isReleasedWhenClosed = false
         window.setFrameOrigin(NSPoint(x: -10000, y: -10000))
         window.orderBack(nil)
@@ -197,9 +325,10 @@ final class SettingsPresentationTests: XCTestCase {
         store.send(.sectionSelected(.applications))
         waitForUI("Applications is selected") { outline.selectedRow == SettingsSection.availableCases.firstIndex(of: .applications) }
         let presentation = store.send(.addAppButtonTapped)
-        waitForUI("Application picker is presented") { window.sheets.count == 1 }
+        waitForUI("Application picker uses the shared navigation stack") { store.appPicker != nil && window.title == "Add Applications" }
+        XCTAssertTrue(window.sheets.isEmpty)
         await root.send(.session(.recoveryStarted)).finish()
-        waitForUI("Recovery dismisses the picker") { store.appPicker == nil && window.sheets.isEmpty }
+        waitForUI("Recovery returns to Auto-Activation") { store.appPicker == nil && window.title == "Auto-Activation" }
         await presentation.finish()
         XCTAssertFalse(store.canEdit)
         XCTAssertNil(defaults.data(forKey: "GameModeConfig_v2"))
@@ -229,8 +358,7 @@ final class SettingsPresentationTests: XCTestCase {
         defaults.set(savedConfiguration, forKey: "GameModeConfig_v2")
         defaults.set("logs", forKey: "GameModeSettingsSection")
         let store = SettingsTestDriver(defaults: defaults, isPreview: true)
-        let root = SettingsWindow(store: store.settingsStore)
-        let window = NSWindow(contentViewController: NSHostingController(rootView: root))
+        let window = SettingsWindowController(store: store.settingsStore).makeWindow()
         window.isReleasedWhenClosed = false
         window.setFrameOrigin(NSPoint(x: -10000, y: -10000))
         window.orderBack(nil)
@@ -409,6 +537,21 @@ final class SettingsPresentationTests: XCTestCase {
         let key = await iterator.next()
         XCTAssertNil(key)
         XCTAssertEqual(monitor.removeCount, 1)
+    }
+
+    @MainActor
+    func testRecorderDeleteClearsAndModifierDeleteRemainsACombination() async throws {
+        for flags in [NSEvent.ModifierFlags(), .command] {
+            let monitor = FakeShortcutMonitor()
+            let stream = ShortcutRecordingClient.stream(addMonitor: monitor.install, removeMonitor: monitor.remove)
+            let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: 0, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: 51))
+            XCTAssertNil(monitor.handler?(event))
+            var iterator = stream.makeAsyncIterator()
+            let key = await iterator.next()
+            XCTAssertEqual(key, flags.isEmpty ? .clear : .init(code: 51, modifiers: flags.rawValue))
+            XCTAssertTrue(monitor.activeTokens.isEmpty)
+            XCTAssertEqual(monitor.removeCount, 1)
+        }
     }
 
     @MainActor
@@ -854,6 +997,177 @@ final class SettingsPresentationTests: XCTestCase {
     }
 
 
+    @MainActor
+    func testRenderRecoveryScreenForVisualReview() throws {
+        let output = URL(fileURLWithPath: "/tmp/gamemode-ui-qa", isDirectory: true)
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        var changes = AppliedChanges(functionKeysChanged: true, previousFunctionKeysEnabled: false, disabledShortcutIDs: [], mouseSpeedChanged: true, previousMouseSpeed: 0.3)
+        changes.gesturesChanged = true
+        changes.previousGestureValues = [GestureEntry.defaults[0].id: [GestureEntry.defaults[0].domains[0]: 2]]
+        changes.lowPowerModeChanged = true
+        changes.previousLowPowerModeSettings = ["b": 1, "c": 0]
+        changes.displayRestores = [.init(displayUUID: "display", displayName: "Built-in Display", mode: .init(width: 1920, height: 1080, pixelWidth: 1920, pixelHeight: 1080, refreshRate: 60, ioFlags: 0, modeID: 1))]
+        let backup = try RecoveryBackup(changes: changes)
+        for imported in [false, true] {
+            for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+                let root = RecoveryContentView(backup: backup, fileName: imported ? "GameMode Settings.gamemoderecovery" : nil, selection: backup.settings, isBusy: false, canRestore: imported,
+                                               status: "GameMode restores changes automatically after a crash.", message: nil, error: nil,
+                                               restore: {}, export: {}, open: {}, cancelImport: {}, select: { _, _ in })
+                let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 540, height: 620), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+                window.isReleasedWhenClosed = false
+                window.appearance = NSAppearance(named: appearance)
+                window.title = "GameMode Recovery"
+                window.contentViewController = NSHostingController(rootView: root)
+                window.setContentSize(NSSize(width: 540, height: 620))
+                window.setFrameOrigin(NSPoint(x: -10000, y: -10000))
+                window.orderBack(nil)
+                defer { window.orderOut(nil); window.close() }
+                RunLoop.main.run(until: Date().addingTimeInterval(0.15))
+                let view = try XCTUnwrap(window.contentView?.superview)
+                view.layoutSubtreeIfNeeded()
+                window.displayIfNeeded()
+                let bitmap = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+                view.cacheDisplay(in: view.bounds, to: bitmap)
+                let data = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+                XCTAssertGreaterThan(data.count, 5000)
+                XCTAssertGreaterThanOrEqual(bitmap.pixelsWide, 540)
+                XCTAssertGreaterThanOrEqual(bitmap.pixelsHigh, 620)
+                try data.write(to: output.appendingPathComponent("recovery-\(imported ? "file" : "settings")-\(appearance.rawValue).png"))
+            }
+        }
+    }
+
+    @MainActor
+    func testAllSettingsPanesAndChildPagesShareNativeToolbar() throws {
+        let suite = "GameMode.NativeNavigation.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set("system", forKey: "GameModeSettingsSection")
+        var viewClient = SettingsViewClient.previewValue
+        viewClient.recoveryStatus = { .init(protection: .ready) }
+        let store = SettingsTestDriver(defaults: defaults, isPreview: true, viewClient: viewClient)
+        let controller = SettingsWindowController(store: store.settingsStore)
+        let window = controller.makeWindow()
+        window.isReleasedWhenClosed = false
+        window.setContentSize(NSSize(width: 820, height: 600))
+        window.setFrameOrigin(NSPoint(x: -10000, y: -10000))
+        window.orderBack(nil)
+        defer { window.orderOut(nil); window.close() }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        let headerHeight = window.frame.height - window.contentLayoutRect.maxY
+        XCTAssertGreaterThan(headerHeight, 30, "Top-level panes need the full toolbar, not a compact title bar")
+        XCTAssertEqual(window.titleVisibility, .visible, "AppKit owns the window title")
+        XCTAssertFalse(window.titlebarAppearsTransparent)
+        let navigationGroup = controller.navigationGroup
+        for section in SettingsSection.availableCases {
+            store.settingsStore.send(.sectionSelected(section))
+            RunLoop.main.run(until: Date().addingTimeInterval(0.15))
+            XCTAssertEqual(window.title, section.title)
+            XCTAssertTrue(window.toolbar?.isVisible == true)
+            XCTAssertEqual(window.frame.height - window.contentLayoutRect.maxY, headerHeight, accuracy: 0.5)
+            XCTAssertEqual(window.toolbar?.items.filter { $0.itemIdentifier == .toggleSidebar }.count, 1)
+            XCTAssertTrue(window.toolbar?.items.contains { $0 === navigationGroup } == true)
+            XCTAssertEqual(navigationGroup.subitems.map(\.label), ["Back", "Forward"])
+            XCTAssertEqual(controller.backItem.isEnabled, store.settingsStore.canNavigateBack)
+            XCTAssertEqual(controller.forwardItem.isEnabled, store.settingsStore.canNavigateForward)
+        }
+
+        let output = URL(fileURLWithPath: "/tmp/gamemode-native-navigation")
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        for destination in [SettingsDestination.recovery, .addApplications] {
+            let parent: SettingsSection = destination == .recovery ? .system : .applications
+            store.settingsStore.send(.sectionSelected(parent))
+            RunLoop.main.run(until: Date().addingTimeInterval(0.15))
+            store.settingsStore.send(destination == .recovery ? .recoveryPageOpened : .addAppButtonTapped)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+            XCTAssertEqual(window.title, destination.title)
+            XCTAssertEqual(store.settingsStore.selectedSection, parent)
+            XCTAssertTrue(window.sheets.isEmpty, "Child pages stay in the settings window")
+            XCTAssertEqual(window.frame.height - window.contentLayoutRect.maxY, headerHeight, accuracy: 0.5)
+            XCTAssertTrue(window.toolbar?.items.contains { $0 === navigationGroup } == true)
+            XCTAssertTrue(controller.backItem.isEnabled)
+            XCTAssertFalse(controller.forwardItem.isEnabled)
+            try assertScrollViewportBelowToolbar(window)
+            let view = try XCTUnwrap(window.contentView?.superview)
+            view.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+            let bitmap = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: output.appendingPathComponent("\(destination == .recovery ? "recovery" : "add-applications").png"))
+            XCTAssertTrue(NSApp.sendAction(try XCTUnwrap(controller.backItem.action), to: controller.backItem.target, from: controller.backItem))
+            RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+            XCTAssertNil(store.settingsStore.navigationDestination)
+            XCTAssertEqual(window.title, parent.title)
+            XCTAssertEqual(window.frame.height - window.contentLayoutRect.maxY, headerHeight, accuracy: 0.5)
+            XCTAssertTrue(controller.forwardItem.isEnabled)
+            XCTAssertTrue(NSApp.sendAction(try XCTUnwrap(controller.forwardItem.action), to: controller.forwardItem.target, from: controller.forwardItem))
+            RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+            XCTAssertEqual(window.title, destination.title)
+            controller.goBack(nil)
+        }
+    }
+
+    @MainActor
+    func testSidebarAndToolbarFollowTheSameNativeAnimation() throws {
+        let suite = "GameMode.NativeSidebarAnimation.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let driver = SettingsTestDriver(defaults: defaults, isPreview: true)
+        let controller = SettingsWindowController(store: driver.settingsStore)
+        let window = controller.makeWindow()
+        window.setFrameOrigin(NSPoint(x: -10000, y: -10000))
+        window.orderBack(nil)
+        defer { window.orderOut(nil); window.close() }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.15))
+        let sidebar = controller.splitViewItems[0].viewController.view
+        let title = try XCTUnwrap(findWindowTitle(in: try XCTUnwrap(window.contentView?.superview), title: window.title))
+        let expandedWidth = sidebar.visibleRect.width
+        let titleOffset = title.convert(title.bounds, to: nil).minX - expandedWidth
+        let headerHeight = window.frame.height - window.contentLayoutRect.maxY
+        let output = URL(fileURLWithPath: "/tmp/gamemode-native-sidebar-animation")
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        var rows: [String] = []
+        var collapsedTitleX: CGFloat = 0
+        for show in [false, true] {
+            controller.toggleSidebar(nil)
+            let started = Date()
+            var widths = Set<CGFloat>()
+            for frame in 0..<50 {
+                RunLoop.main.run(until: started.addingTimeInterval(Double(frame + 1) / 120))
+                let width = sidebar.visibleRect.width
+                let titleX = title.convert(title.bounds, to: nil).minX
+                widths.insert(width)
+                rows.append("\(show),\(Date().timeIntervalSince(started)),\(width),\(titleX)")
+                if frame.isMultiple(of: 2), let view = window.contentView?.superview {
+                    let header = NSRect(x: 0, y: view.bounds.maxY - headerHeight, width: view.bounds.width, height: headerHeight)
+                    if let bitmap = view.bitmapImageRepForCachingDisplay(in: header) {
+                        view.cacheDisplay(in: header, to: bitmap)
+                        try bitmap.representation(using: .png, properties: [:])?.write(to: output.appendingPathComponent("\(show ? "show" : "hide")-\(String(format: "%02d", frame / 2)).png"))
+                    }
+                }
+                if show {
+                    XCTAssertEqual(titleX, max(collapsedTitleX, width + titleOffset), accuracy: 2, "The toolbar must follow the divider during the transition, not jump at its end")
+                }
+                XCTAssertEqual(window.frame.height - window.contentLayoutRect.maxY, headerHeight, accuracy: 0.5)
+            }
+            if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+                XCTAssertGreaterThan(widths.count, 3, "Sidebar animation must remain enabled")
+            }
+            XCTAssertEqual(controller.splitViewItems[0].isCollapsed, !show)
+            if show { XCTAssertEqual(sidebar.visibleRect.width, expandedWidth, accuracy: 1) }
+            else { collapsedTitleX = title.convert(title.bounds, to: nil).minX }
+        }
+        try rows.joined(separator: "\n").write(to: output.appendingPathComponent("geometry.csv"), atomically: true, encoding: .utf8)
+        // Reversing a native transition must not leave a stale toolbar position.
+        controller.toggleSidebar(nil)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.06))
+        controller.toggleSidebar(nil)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+        XCTAssertFalse(controller.splitViewItems[0].isCollapsed)
+        XCTAssertEqual(sidebar.visibleRect.width, expandedWidth, accuracy: 1)
+        XCTAssertEqual(title.convert(title.bounds, to: nil).minX, expandedWidth + titleOffset, accuracy: 2)
+    }
+
     /// Own-view rendering; never captures the desktop or starts GameMode's engines.
     @MainActor
     func testRenderSettingsForVisualReview() throws {
@@ -876,19 +1190,14 @@ final class SettingsPresentationTests: XCTestCase {
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
         defaults.set(section.rawValue, forKey: "GameModeSettingsSection")
-        let store = SettingsTestDriver(defaults: defaults, isPreview: true)
+        var viewClient = SettingsViewClient.previewValue
+        viewClient.recoveryStatus = { .init(protection: .ready) }
+        let store = SettingsTestDriver(defaults: defaults, isPreview: true, viewClient: viewClient)
         store.isAccessibilityGranted = true
         store.settingsStore.send(.sectionSelected(section))
-        let root = SettingsWindow(store: store.settingsStore)
-        let controller = NSHostingController(rootView: root)
-        let window = NSWindow(contentRect: NSRect(origin: NSPoint(x: -10000, y: -10000), size: size), styleMask: [.titled, .closable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+        let controller = SettingsWindowController(store: store.settingsStore)
+        let window = controller.makeWindow()
         window.appearance = NSAppearance(named: appearance)
-        window.title = "GameMode Settings"
-        window.titlebarAppearsTransparent = true
-        window.toolbar = NSToolbar(identifier: "SettingsRenderToolbar")
-        window.toolbarStyle = .unified
-        window.contentViewController = controller
         window.setContentSize(size)
         window.setFrameOrigin(NSPoint(x: -10000, y: -10000))
         window.orderBack(nil)
@@ -897,6 +1206,7 @@ final class SettingsPresentationTests: XCTestCase {
         RunLoop.main.run(until: Date().addingTimeInterval(0.15))
         let view = try XCTUnwrap(window.contentView?.superview ?? window.contentView)
         view.layoutSubtreeIfNeeded()
+        try assertScrollViewportBelowToolbar(window)
         window.displayIfNeeded()
         RunLoop.main.run(until: Date().addingTimeInterval(0.1))
         view.layoutSubtreeIfNeeded()
@@ -942,6 +1252,7 @@ final class SettingsPresentationTests: XCTestCase {
                     RunLoop.main.run(until: Date().addingTimeInterval(0.05))
                     view.layoutSubtreeIfNeeded()
                     window.displayIfNeeded()
+                    try assertScrollViewportBelowToolbar(window)
                     let pageBitmap = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
                     view.cacheDisplay(in: view.bounds, to: pageBitmap)
                     let pageData = try XCTUnwrap(pageBitmap.representation(using: .png, properties: [:]))
@@ -951,6 +1262,21 @@ final class SettingsPresentationTests: XCTestCase {
             }
         }
         print("Settings render: \(output.path)")
+    }
+
+    @MainActor
+    private func assertScrollViewportBelowToolbar(_ window: NSWindow, file: StaticString = #filePath, line: UInt = #line) throws {
+        let controller = try XCTUnwrap(window.contentViewController as? SettingsWindowController, file: file, line: line)
+        let content = controller.splitViewItems[1].viewController.view
+        let scroll = try XCTUnwrap(findFormScrollView(in: content), file: file, line: line)
+        XCTAssertLessThanOrEqual(scroll.convert(scroll.bounds, to: nil).maxY, window.contentLayoutRect.maxY + 0.5, "Scrolling content must never draw behind the navigation title", file: file, line: line)
+        XCTAssertTrue(scroll.superview?.clipsToBounds == true || scroll.clipsToBounds, file: file, line: line)
+    }
+
+    @MainActor
+    private func findWindowTitle(in view: NSView, title: String) -> NSTextField? {
+        if let field = view as? NSTextField, field.stringValue == title { return field }
+        return view.subviews.lazy.compactMap { self.findWindowTitle(in: $0, title: title) }.first
     }
 
     @MainActor

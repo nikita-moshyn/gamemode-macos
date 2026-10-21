@@ -88,6 +88,7 @@ final class AppSettingsTests: XCTestCase {
             await store.send(.toggleShortcut(state.config.shortcuts[0].id))
             await store.send(.toggleGesture(state.config.gestures[0].id))
             await store.send(.toggleHotkey(state.config.hotkeys[0].id))
+            await store.send(.restoreDefaultHotkeys)
             await store.send(.managedDisplayChanged(id: "display", name: "Display", isEnabled: false))
             await store.send(.save)
         }

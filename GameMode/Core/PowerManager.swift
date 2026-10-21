@@ -93,7 +93,7 @@ class PowerManager {
     }
 
     /// Restore only captured source policies and verify each source independently.
-    static func restoreLowPowerModeSettings(_ settings: [String: Int]) -> [String] {
+    static func restoreLowPowerModeSettings(_ settings: [String: Int], allowAuthorization: Bool = true) -> [String] {
         guard !settings.isEmpty, settings.keys.allSatisfy({ ["b", "c", "u"].contains($0) }),
               settings.values.allSatisfy({ $0 == 0 || $0 == 1 }) else {
             return ["Original Low Power Mode settings are incomplete"]
@@ -102,21 +102,27 @@ class PowerManager {
             return ["Low Power Mode settings could not be read"]
         }
         var failures: [String] = []
+        let sourceNames = ["b": "battery", "c": "charger", "u": "backup power"]
         for source in ["b", "c", "u"] {
             guard let value = settings[source] else { continue }
+            let name = sourceNames[source] ?? source
             guard current[source] != nil else {
-                failures.append("Low Power Mode source \(source) is unavailable")
+                failures.append("Low Power Mode for \(name) is unavailable")
+                continue
+            }
+            if current[source] != value, !allowAuthorization {
+                failures.append("Restoring Low Power Mode for \(name) needs permission. Open GameMode or GameMode Recovery and choose Restore Settings.")
                 continue
             }
             if current[source] != value, !executePowerCommand("pmset -\(source) lowpowermode \(value)") {
-                failures.append("Low Power Mode could not be restored for source \(source)")
+                failures.append("Low Power Mode could not be restored for \(name)")
             }
         }
         guard let restored = captureLowPowerModeSettings() else {
             return failures + ["Restored Low Power Mode settings could not be read"]
         }
         for (source, expected) in settings where restored[source] != expected {
-            failures.append("Low Power Mode could not be verified for source \(source)")
+            failures.append("Low Power Mode could not be verified for \(sourceNames[source] ?? source)")
         }
         return failures
     }

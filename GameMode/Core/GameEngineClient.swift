@@ -12,8 +12,12 @@ import Foundation
 struct GameEngineClient: Sendable {
     enum Operation: Equatable, Sendable {
         case startup, recover, accept, reset, mouse(Bool), inputGuard, display, terminate
+        case restoreNormalSettings, removeFunctionKeyOverride(FunctionKeyPreferences), exportRecoveryKit(URL), inspectRecovery, restoreBackup(RecoveryBackup, Set<RecoveryBackup.Setting>)
         var isRecovery: Bool {
-            switch self { case .startup, .recover, .accept, .reset: return true; default: return false }
+            switch self { case .startup, .recover, .accept, .reset, .restoreNormalSettings, .removeFunctionKeyOverride, .restoreBackup: return true; default: return false }
+        }
+        var isReadOnly: Bool {
+            switch self { case .inspectRecovery, .exportRecoveryKit: return true; default: return false }
         }
     }
     struct Request: Equatable, Sendable {
@@ -23,6 +27,7 @@ struct GameEngineClient: Sendable {
     struct Snapshot: Equatable, Sendable {
         var mouseIsApplied = false
         var mouseBaseline: Double?
+        var recoveryBackup: RecoveryBackup?
     }
     enum Response: Equatable, Sendable { case completed(Snapshot), failed(String, Snapshot) }
     struct Context {
@@ -34,7 +39,9 @@ struct GameEngineClient: Sendable {
         func allows(_ request: Request) -> Bool {
             guard self.request == request else { return false }
             switch request.operation {
-            case .startup, .recover, .accept, .reset: return session.phase == .recovering
+            case .startup, .recover, .accept, .reset, .restoreNormalSettings, .removeFunctionKeyOverride, .restoreBackup: return session.phase == .recovering
+            case .exportRecoveryKit, .inspectRecovery:
+                switch session.phase { case .ready, .needsRecovery: return true; default: return false }
             case .terminate: return session.phase == .terminating
             case .mouse: return session.recoveryReady && session.appliedMode
             case .inputGuard: return session.recoveryReady && session.appliedMode && session.desiredMode
@@ -65,32 +72,21 @@ extension DependencyValues {
 /// pending work, and the recovery gate belong to GameModeFeature.
 final class GameEngine: @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.nikita.GameMode.settings", qos: .userInitiated)
-    private let settingsManager = SettingsManager()
+    private let settingsManager: SettingsManager
     private let refreshRateLock: RefreshRateLock
     private let snapshot = LockIsolated(GameEngineClient.Snapshot())
     private let journal: StateJournal
-    private lazy var recovery = RecoveryController(journal: journal, operations: .init(
-        stopDisplays: { [unowned self] in self.refreshRateLock.stop().failedDisplays },
-        restoreDisplays: { [unowned self] in self.refreshRateLock.restorePersistedDisplayModes($0) },
-        restoreKeyboard: { [unowned self] in self.settingsManager.restoreKeyboardSettings(from: $0) },
-        restorePower: { PowerManager.restoreLowPowerModeSettings($0) },
-        readMouse: { [unowned self] in self.settingsManager.readCurrentMouseSpeed() },
-        applyMouse: { [unowned self] in self.settingsManager.applyMouseSpeed($0) }
-    ))
+    private let protection: CrashRecoveryProtection
+    private let recovery: RecoveryController
 
-    init(journal: StateJournal = .shared, refreshRateLock: RefreshRateLock = RefreshRateLock()) {
+    init(journal: StateJournal = .shared, refreshRateLock: RefreshRateLock = RefreshRateLock(), settingsManager: SettingsManager = SettingsManager(), protection: CrashRecoveryProtection = .live) {
         self.journal = journal
         self.refreshRateLock = refreshRateLock
-        refreshRateLock.willChangeDisplay = { record in
-            let state = try journal.load()
-            if let existing = state.appliedChanges.displayRestores.first(where: { $0.displayUUID == record.displayUUID }) {
-                guard existing == record else { throw JournalError.changedBaseline }
-                return
-            }
-            try journal.update { $0.appliedChanges.displayRestores.append(record) }
-        }
-        refreshRateLock.didRestoreDisplay = { uuid in
-            try journal.update { $0.appliedChanges.displayRestores.removeAll { $0.displayUUID == uuid } }
+        self.settingsManager = settingsManager
+        self.protection = protection
+        recovery = .system(journal: journal, settings: settingsManager, displays: refreshRateLock, interactive: true, automaticDisplayRecovery: true) {
+            try protection.prepare()
+            try protection.checkpoint(journal)
         }
     }
 
@@ -119,7 +115,9 @@ final class GameEngine: @unchecked Sendable {
         let session = GameSessionClient.serialized(on: queue, shouldExecute: { read().session.allows($0) }, apply: { [self] transition in
             defer { _ = captureSnapshot() }
             if transition.isEnabled { try activate(context: read(), read: read) }
-            else { try recovery.restore() }
+            else {
+                try recovery.recover(repairLegacyOverride: read().config.system.repairLegacyFunctionKeyOverride)
+            }
         })
         return (client, session)
     }
@@ -127,7 +125,7 @@ final class GameEngine: @unchecked Sendable {
     private func captureSnapshot() -> GameEngineClient.Snapshot {
         guard let state = try? journal.load() else { return snapshot.value }
         let changes = state.appliedChanges
-        let value = GameEngineClient.Snapshot(mouseIsApplied: changes.mouseSpeedChanged, mouseBaseline: changes.previousMouseSpeed)
+        let value = GameEngineClient.Snapshot(mouseIsApplied: changes.mouseSpeedChanged, mouseBaseline: changes.previousMouseSpeed, recoveryBackup: snapshot.value.recoveryBackup)
         snapshot.setValue(value)
         return value
     }
@@ -137,9 +135,29 @@ final class GameEngine: @unchecked Sendable {
             if operation.isRecovery { refreshRateLock.resumeAutomaticRecovery() }
         }
         switch operation {
-        case .startup: try recovery.prepareForLaunch(restoreAutomatically: context.config.system.restoreOnLaunch)
-        case .recover, .terminate: try recovery.restore()
+        case .startup:
+            try recovery.prepareForLaunch(restoreAutomatically: true, repairLegacyOverride: context.config.system.repairLegacyFunctionKeyOverride)
+            // A missing helper blocks only changes that could survive a crash.
+            // Process-owned shortcut blocking can still be used safely.
+            do { try protection.prepare(); try protection.checkpoint(journal) }
+            catch { Log.warning(error.localizedDescription, category: "Recovery") }
+        case .recover, .terminate:
+            try recovery.recover(repairLegacyOverride: context.config.system.repairLegacyFunctionKeyOverride)
+            if operation == .recover {
+                do { try protection.prepare() } catch { Log.warning(error.localizedDescription, category: "Recovery") }
+            }
         case .reset: try recovery.reset()
+        case .restoreNormalSettings:
+            try recovery.recover(repairLegacyOverride: context.config.system.repairLegacyFunctionKeyOverride)
+        case .removeFunctionKeyOverride(let expected):
+            try recovery.recover(.removeFunctionKeyOverride(expected))
+        case .exportRecoveryKit(let destination):
+            try recovery.exportKit(to: destination)
+        case .inspectRecovery:
+            let backup = try recovery.backup()
+            snapshot.withValue { $0.recoveryBackup = backup }
+        case let .restoreBackup(backup, settings):
+            try recovery.restoreBackup(backup, settings: settings)
         case .accept:
             refreshRateLock.pauseAutomaticRecovery()
             try recovery.acceptCurrentSettings()
@@ -150,7 +168,7 @@ final class GameEngine: @unchecked Sendable {
             else { try recovery.restoreMouseProfile() }
         case .inputGuard:
             try recovery.updateInputGuard(context.config.inputGuardPolicy, capture: { [self] policy in
-                try settingsManager.captureKeyboardSettings(functionKeysEnabled: policy.functionKeysEnabled, shortcutIDs: policy.shortcutIDs, gestures: policy.gestures)
+                try settingsManager.captureKeyboardSettings(functionKeyBehavior: policy.functionKeyBehavior, shortcutIDs: policy.shortcutIDs, gestures: policy.gestures)
             }, apply: { [self] in try settingsManager.applyKeyboardSettings($0) })
         case .display: try applyDisplays(context: context)
         }
@@ -158,8 +176,9 @@ final class GameEngine: @unchecked Sendable {
 
     private func activate(context: GameEngineClient.Context, read: () -> GameEngineClient.Context) throws {
         let config = context.config
+        try recovery.repairLegacyFunctionKeyOverrideIfNeeded(enabled: config.system.repairLegacyFunctionKeyOverride)
         let policy = config.inputGuardPolicy
-        let snapshot = try settingsManager.captureKeyboardSettings(functionKeysEnabled: policy.functionKeysEnabled, shortcutIDs: policy.shortcutIDs, gestures: policy.gestures)
+        let snapshot = try settingsManager.captureKeyboardSettings(functionKeyBehavior: policy.functionKeyBehavior, shortcutIDs: policy.shortcutIDs, gestures: policy.gestures)
         #if FEATURE_DISPLAYS
         let shouldDisablePower = config.display.autoDisableLowPowerMode && PowerManager.isLowPowerModeEnabled
             && PowerManager.isBatteryAboveThreshold(config.display.lowPowerModeBatteryThreshold)
@@ -167,7 +186,7 @@ final class GameEngine: @unchecked Sendable {
         #else
         let power: [String: Int]? = nil
         #endif
-        let state = GameModeState(isActive: true, activatedAt: Date(), appliedChanges: AppliedChanges(
+        var state = GameModeState(isActive: true, activatedAt: Date(), appliedChanges: AppliedChanges(
             functionKeysChanged: snapshot.functionKeysChanged,
             previousFunctionKeysEnabled: snapshot.previousFunctionKeysEnabled,
             disabledShortcutIDs: snapshot.shortcutIDsToDisable,
@@ -178,6 +197,7 @@ final class GameEngine: @unchecked Sendable {
             lowPowerModeChanged: power != nil, previousLowPowerModeEnabled: nil,
             previousLowPowerModeSettings: power
         ))
+        state.appliedChanges.functionKeyContext = snapshot.functionKeyContext
         try recovery.activate(state) {
             try settingsManager.applyKeyboardSettings(snapshot)
             #if FEATURE_DISPLAYS

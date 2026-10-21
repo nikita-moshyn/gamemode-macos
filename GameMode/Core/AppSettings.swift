@@ -33,14 +33,53 @@ struct AppSettings {
         var isPreview = false
         var recordingHotkeyID: String?
         var selectedSection: SettingsSection = .general
+        var backHistory: [SettingsLocation] = []
+        var forwardHistory: [SettingsLocation] = []
         var confirmation: Confirmation?
         @Presents var appPicker: ApplicationPicker.State?
         var scanID: UUID?
         var scanSummary: String?
         var displayStatus = SettingsDisplayStatus()
+        var recoveryStatus = RecoveryStatus()
+        var recoveryKitPath: String?
+        var recoveryToolError: String?
+        var recoveryPageIsPresented = false
+        var recoveryDocument: RecoveryBackup?
+        var importedRecovery: RecoveryBackup?
+        var importedRecoveryName: String?
+        var selectedRecoverySettings: Set<RecoveryBackup.Setting> = []
+        var recoveryNotice: String?
         var loginStatus: LoginItemStatus = .notRegistered
         var loginError: String?
         var isUpdatingLoginItem = false
+
+        var navigationDestination: SettingsDestination? {
+            if selectedSection == .system, recoveryPageIsPresented { return .recovery }
+            if selectedSection == .applications, appPicker != nil { return .addApplications }
+            return nil
+        }
+
+        var navigationTitle: String { navigationDestination?.title ?? selectedSection.title }
+
+        var navigationLocation: SettingsLocation {
+            switch navigationDestination {
+            case .recovery: .recovery
+            case .addApplications: .addApplications
+            case nil: .section(selectedSection)
+            }
+        }
+
+        func canVisit(_ location: SettingsLocation) -> Bool {
+            SettingsSection.availableCases.contains(location.section) && (location != .addApplications || canEdit)
+        }
+
+        var canNavigateBack: Bool {
+            navigationDestination != nil || backHistory.contains { $0 != navigationLocation && canVisit($0) }
+        }
+
+        var canNavigateForward: Bool {
+            forwardHistory.contains { $0 != navigationLocation && canVisit($0) }
+        }
 
         var canEdit: Bool {
             configurationLoadError == nil && !runtime.isTransitioning && !runtime.recoveryRequired
@@ -71,6 +110,7 @@ struct AppSettings {
         case toggleGesture(String)
         case updateHotkey(id: String, keyCode: UInt16?, modifiers: UInt)
         case toggleHotkey(String)
+        case restoreDefaultHotkeys
         case seedConfiguration([MonitoredApp])
         case command(AppPlatformClient.Command)
         case applyMouse, retryRecovery, acceptCurrentSettings, resetConfiguration
@@ -96,6 +136,13 @@ struct AppSettings {
         case loginStatusLoaded(LoginItemStatus)
         case launchAtLoginChanged(Bool)
         case loginItemUpdateFinished(Result<LoginItemStatus, Error>)
+        case recoveryStatusRequested, recoveryStatusLoaded(RecoveryStatus)
+        case openRecoverySettings
+        case navigationBackRequested, navigationForwardRequested
+        case restoreNormalSettings, removeFunctionKeyOverride(FunctionKeyPreferences), exportRecoveryKit
+        case recoveryPageOpened, recoveryPageClosed, importRecoveryFile, restoreRecoveryFile, discardRecoveryFile
+        case recoveryFileLoaded(Result<RecoveryBackup, Error>, String)
+        case recoverySettingSelected(RecoveryBackup.Setting, Bool)
     }
 
     @Dependency(\.settingsClient) var client
@@ -127,6 +174,55 @@ struct AppSettings {
                 config.monitoredApps.append(contentsOf: apps.filter { known.insert($0.bundleID).inserted })
                 persist(config, into: &state)
                 return .none
+            case .restoreNormalSettings, .removeFunctionKeyOverride, .exportRecoveryKit, .restoreRecoveryFile:
+                return .none
+            case .navigationBackRequested:
+                return traverseHistory(backwards: true, state: &state)
+            case .navigationForwardRequested:
+                return traverseHistory(backwards: false, state: &state)
+            case .recoveryPageOpened:
+                return visit(.recovery, state: &state)
+            case .recoveryPageClosed:
+                guard state.navigationDestination == .recovery else { return .none }
+                return traverseHistory(backwards: true, state: &state)
+            case .appPicker(.dismiss):
+                guard state.navigationDestination == .addApplications else { return .none }
+                return traverseHistory(backwards: true, state: &state)
+            case .importRecoveryFile:
+                guard !state.runtime.isTransitioning else { return .none }
+                return .run { send in
+                    guard let url = await viewClient.chooseRecoveryFile() else { return }
+                    await send(.recoveryFileLoaded(Result { try viewClient.readRecoveryFile(url) }, url.lastPathComponent))
+                }
+            case let .recoveryFileLoaded(result, name):
+                guard state.recoveryPageIsPresented, !state.runtime.isTransitioning else { return .none }
+                switch result {
+                case .success(let backup):
+                    state.importedRecovery = backup
+                    state.importedRecoveryName = name
+                    state.selectedRecoverySettings = backup.settings
+                    state.recoveryToolError = nil
+                    state.recoveryNotice = nil
+                case .failure(let error): state.recoveryToolError = error.localizedDescription
+                }
+                return .none
+            case .recoverySettingSelected(let setting, let selected):
+                guard !state.runtime.isTransitioning, state.importedRecovery?.settings.contains(setting) == true else { return .none }
+                if selected { state.selectedRecoverySettings.insert(setting) }
+                else { state.selectedRecoverySettings.remove(setting) }
+                return .none
+            case .discardRecoveryFile:
+                state.importedRecovery = nil
+                state.importedRecoveryName = nil
+                state.recoveryToolError = nil
+                return .none
+            case .recoveryStatusRequested:
+                return .run { send in await send(.recoveryStatusLoaded(viewClient.recoveryStatus())) }
+            case .recoveryStatusLoaded(let status):
+                state.recoveryStatus = status
+                return .none
+            case .openRecoverySettings:
+                return .run { _ in await viewClient.openRecoverySettings() }
             case .command, .applyMouse, .retryRecovery, .acceptCurrentSettings, .resetConfiguration:
                 return .none
             case .recordHotkey(let id):
@@ -137,12 +233,20 @@ struct AppSettings {
                 }
                 state.recordingHotkeyID = id
                 return .run { [preview = state.isPreview] send in
+                    guard !Task.isCancelled else { return }
                     if !preview { await platform.configureHotkeys([]) }
+                    guard !Task.isCancelled else { return }
                     var recorded: ShortcutRecordingClient.Key?
                     for await key in await shortcutRecording.events() { recorded = key; break }
                     guard !Task.isCancelled else { return }
                     await send(.recordedHotkey(id, recorded))
                 }.cancellable(id: CancelID.recording, cancelInFlight: true)
+            case .restoreDefaultHotkeys:
+                guard state.canEdit else { return .none }
+                state.recordingHotkeyID = nil
+                config.hotkeys = AppHotkey.defaults
+                if config != state.config { persist(config, into: &state) }
+                return .cancel(id: CancelID.recording)
             case let .recordedHotkey(id, key):
                 guard state.recordingHotkeyID == id else { return .none }
                 state.recordingHotkeyID = nil
@@ -156,14 +260,8 @@ struct AppSettings {
                 client.saveSelectedSection(state.selectedSection)
                 return state.selectedSection == .shortcuts ? .run { send in await send(.refreshShortcuts) } : .none
             case .sectionSelected(let section):
-                guard let section, SettingsSection.availableCases.contains(section), section != state.selectedSection else { return .none }
-                state.selectedSection = section
-                state.appPicker = nil
-                state.confirmation = nil
-                client.saveSelectedSection(section)
-                // List selection can run inside SwiftUI's update transaction.
-                // Discovery publishes preferences only after that transaction ends.
-                return section == .shortcuts ? .run { send in await send(.refreshShortcuts) } : .none
+                guard let section else { return .none }
+                return visit(.section(section), state: &state)
             case .confirmationRequested(let confirmation):
                 guard confirmation == .resetConfiguration ? state.canResetConfiguration : state.canAcceptCurrentSettings else { return .none }
                 state.confirmation = confirmation
@@ -174,8 +272,7 @@ struct AppSettings {
                 return .none
             case .addAppButtonTapped:
                 guard state.canEdit else { return .none }
-                state.appPicker = ApplicationPicker.State(existingIDs: Set(config.monitoredApps.map(\.bundleID)))
-                return .none
+                return visit(.addApplications, state: &state)
             case let .appPicker(.presented(.delegate(.addApplication(app, clearManualEntry)))):
                 guard state.canEdit, state.appPicker != nil else { return .none }
                 guard !config.monitoredApps.contains(where: { $0.bundleID == app.bundleID }) else {
@@ -345,6 +442,50 @@ struct AppSettings {
             return .none
         }
         .ifLet(\.$appPicker, action: \.appPicker) { ApplicationPicker() }
+    }
+
+    private func visit(_ location: SettingsLocation, state: inout State) -> Effect<Action> {
+        guard state.canVisit(location), location != state.navigationLocation else { return .none }
+        state.backHistory = Array((state.backHistory + [state.navigationLocation]).suffix(100))
+        state.forwardHistory = []
+        return show(location, state: &state)
+    }
+
+    private func traverseHistory(backwards: Bool, state: inout State) -> Effect<Action> {
+        let current = state.navigationLocation
+        var history = backwards ? state.backHistory : state.forwardHistory
+        var destination: SettingsLocation?
+        while let location = history.popLast() {
+            if location != current, state.canVisit(location) { destination = location; break }
+        }
+        // A directly opened child page still has a parent even without history.
+        if destination == nil, backwards, state.navigationDestination != nil { destination = .section(state.selectedSection) }
+        guard let destination else { return .none }
+        if backwards {
+            state.backHistory = history
+            state.forwardHistory = Array((state.forwardHistory + [current]).suffix(100))
+        } else {
+            state.forwardHistory = history
+            state.backHistory = Array((state.backHistory + [current]).suffix(100))
+        }
+        let effect = show(destination, state: &state)
+        // Re-entering Recovery refreshes its saved settings through the same engine.
+        return destination == .recovery ? .merge(effect, .send(.recoveryPageOpened)) : effect
+    }
+
+    private func show(_ location: SettingsLocation, state: inout State) -> Effect<Action> {
+        let changedSection = state.selectedSection != location.section
+        state.selectedSection = location.section
+        state.recoveryPageIsPresented = location == .recovery
+        state.appPicker = location == .addApplications ? .init(existingIDs: Set(state.config.monitoredApps.map(\.bundleID))) : nil
+        state.importedRecovery = nil
+        state.importedRecoveryName = nil
+        state.selectedRecoverySettings = []
+        state.confirmation = nil
+        if changedSection { client.saveSelectedSection(location.section) }
+        // Sidebar selection can run inside SwiftUI's update transaction.
+        // Discovery publishes preferences only after that transaction ends.
+        return changedSection && location.section == .shortcuts ? .run { send in await send(.refreshShortcuts) } : .none
     }
 
     private func persist(_ config: GameModeConfig, into state: inout State) {

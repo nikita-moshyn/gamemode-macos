@@ -5,12 +5,14 @@ GameMode lives in your menu bar. Open the controller icon for the Game Mode swit
 ## Set it up
 
 1. Open **Settings** from the menu bar.
-2. In **Input Guard**, turn protection on and select the shortcuts and gestures you want to block. Enable standard function keys if you want F1-F12 without the media controls.
+2. In **Input Guard**, turn protection on and select the shortcuts and gestures you want to block. Choose your function-key profile in the same **Input Guard** page.
 3. In **Auto-Activation**, enable the applications you play with.
 4. In **Mouse**, choose a tracking speed and whether to apply it automatically.
 5. In **General**, enable **Launch at login** if you want GameMode to start when you sign in.
 
 Input Guard is off by default on a fresh install. Selecting an app for automatic activation doesn't turn protection on; choose the changes you want first.
+
+Use the sidebar to choose a settings pane. Back and Forward retrace the panes and pages you visit; their keyboard shortcuts are **⌘[** and **⌘]**. Settings reopens to your most recently selected pane.
 
 ## Permissions
 
@@ -18,13 +20,15 @@ Grant GameMode access in **System Settings > Privacy & Security > Accessibility*
 
 Notifications are optional. Allow them if you'd like a message when Game Mode turns on or off.
 
+GameMode sets up crash recovery automatically. **Settings > System > Recovery** shows whether it is on. If permission is needed, choose **Allow in System Settings…** and allow GameMode in **Login Items & Extensions**. Recovery runs independently of **Launch at login**. Shortcut blocking works without this permission because macOS stops it when GameMode exits.
+
 In beta builds, automatic Low Power Mode changes require administrator approval. That prompt is separate from Accessibility access.
 
 ## Automatic activation
 
 GeForce NOW and Steam Games are enabled by default. You can also enable presets for other launchers and emulators.
 
-- **Add App** lets you choose an application yourself.
+- **Add App** opens the Add Applications page. Choose applications there, then use Back to return to Auto-Activation.
 - **Scan for Games** looks in `/Applications` and `~/Applications` for apps marked as games. Detected games start disabled until you choose them.
 - **Steam Games** matches individual Steam game apps. Keeping the Steam launcher open alone doesn't activate GameMode.
 
@@ -34,9 +38,38 @@ Use the **Game Mode** switch in the menu bar whenever you want manual control.
 
 ## Input Guard
 
-Turn on the **Input Guard** master switch, then choose the system shortcuts and gestures to block during Game Mode. The function key option uses F1-F12 as standard keys while the mode is active.
+Turn on the **Input Guard** master switch, then choose the system shortcuts and gestures to block during Game Mode. Your function-key profile follows the same master switch.
 
 Switching Input Guard off keeps your selections for later. Your original settings are saved before changes are applied and used for restoration afterward.
+
+### Function keys
+
+Choose **Function Keys** in **Settings > Input Guard**:
+
+- **Keep normal behavior** leaves your keys unchanged.
+- **Standard F1–F12** uses function keys during Game Mode.
+- **Brightness and volume** uses media keys during Game Mode.
+
+This choice follows the Input Guard switch and is saved only in GameMode. Your normal macOS keyboard preference stays intact.
+
+## Recovery
+
+GameMode automatically restores settings when gaming ends, on quit, and after a crash. Crash recovery covers function keys, gestures, mouse speed, display modes, and power settings that GameMode changed. Shortcut blocking and display activity overlays disappear when the app exits and do not need saved recovery records.
+
+Open **Settings > System > Recovery** to see your saved settings. **Restore Settings** ends Game Mode and retries any unfinished recovery. Newer choices made in macOS Keyboard Settings are kept. If a display is disconnected, its restoration waits until it is available. Power recovery may require administrator approval; the background helper leaves that item pending for the app while recovering other settings.
+
+### Export and recover from a file
+
+Choose **Export…** on the Recovery page. This saves two items in your chosen folder:
+
+- A **.gamemoderecovery** file containing your saved settings.
+- **GameMode Recovery.app**, a standalone app with the same recovery screen.
+
+While Game Mode is active, the export contains your original settings. Keep both items if you want to recover after removing GameMode.
+
+Choose **Recover from File…**, review the saved settings, select the ones you want, and choose **Restore Selected Settings**. Opening a file does not change anything. Files work for the same user on the same Mac that created them.
+
+You can also open **GameMode Recovery.app** without GameMode installed. Quit GameMode before restoring with the standalone app. It can finish pending recovery or restore a reviewed file, including when local recovery data is damaged. No Terminal commands are needed.
 
 ## Mouse preset
 
@@ -49,6 +82,8 @@ Your normal tracking speed is captured before the preset is first applied. Turni
 ## Hotkeys
 
 Open **Settings > Hotkeys** to record shortcuts for GameMode actions. Enable the ones you want to use and grant Accessibility access so they work while another app is focused.
+
+Use the checkbox beside an action to enable it. Double-click its key combination on the right to enter a new shortcut, or select a row and press Return. Escape cancels editing; Delete clears the shortcut. **Restore Defaults** resets only these hotkeys.
 
 ## Displays in beta builds
 
@@ -78,19 +113,24 @@ Also check that Input Guard is enabled, the relevant shortcuts are selected, and
 
 ### Settings weren't restored
 
-Reopen GameMode so it can recover the interrupted session. Recovery on launch and restoration before shutdown or restart are enabled by default.
+Open **Review Recovery** from the menu bar, or go to **Settings > System > Recovery**.
 
-If recovery needs attention, open **Review Recovery** from the menu bar or **Settings > System > Recovery**:
-
-1. Choose **Retry Recovery** to restore saved values. When no recovery is pending, the button is called **Restore Saved Settings**.
-2. If restoration still fails, check the message and any required permissions before trying again.
-3. As a last resort, set your preferred normal settings in macOS, then choose **Use Current Settings as Normal**. This ends recovery and stops using the previous saved values for automatic restoration.
-
-Keep the recovery files in `~/Library/Application Support/GameMode/` while recovery is pending. They contain the original settings the app needs.
+1. Choose **Restore Settings** to retry unfinished recovery.
+2. Check any message about a disconnected display or required permission.
+3. If you have an exported file, choose **Recover from File…** and review it before restoring.
+4. If you have already set everything correctly in macOS, **Keep Current Settings…** ends pending recovery after confirmation.
 
 ### Saved configuration can't be read
 
 Open **Settings > System** and review the message. Finish any pending recovery first. **Reset Saved Configuration** resets GameMode preferences; it doesn't restore macOS settings. It's available once Game Mode is off and recovery has finished.
+
+### Function keys turn back on while Game Mode is off
+
+Older betas saved the standard-function-key option in a preference specific to your Mac. That value survives reboots and can override your normal keyboard preference. Current versions change the live keyboard mode temporarily.
+
+Previously enabled legacy cleanup continues automatically through the shared recovery engine. It removes the old forced-on override only when the saved normal preference explicitly selects media keys. Managed or unreadable preferences are left alone. No permanent gaming override is created by current versions.
+
+Keep only one current copy of GameMode running; an older beta can recreate the override. If settings still need attention, open the Recovery page.
 
 For other problems, [open an issue](https://github.com/nikita-moshyn/gamemode-macos/issues) with the app version, macOS version, and steps to reproduce it. The [contributor guide](../CONTRIBUTING.md#report-a-bug) explains how to collect logs.
 
@@ -99,7 +139,8 @@ Report vulnerabilities and security concerns privately, following the [security 
 ## Uninstall
 
 1. Turn off Game Mode and let restoration finish. Resolve any pending recovery first.
-2. Disable **Launch at login** in **Settings > General**, then quit GameMode.
-3. Move `GameMode.app` from Applications to the Trash.
+2. Choose **Export…** in **Settings > System > Recovery** to keep your settings and a standalone recovery app.
+3. Disable **Launch at login** in **Settings > General**, then quit GameMode.
+4. Move `GameMode.app` from Applications to the Trash. You can disable its background item in macOS **Login Items & Extensions** after recovery is complete.
 
-Saved preferences remain on your Mac if you reinstall later.
+Saved preferences and recovery records remain on your Mac if you reinstall later. If the app was deleted before restoration finished, open your exported **GameMode Recovery.app**.

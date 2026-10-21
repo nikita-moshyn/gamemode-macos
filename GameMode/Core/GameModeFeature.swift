@@ -75,6 +75,7 @@ struct GameModeFeature {
         case accessibilityChanged(Bool)
         case terminationRequested(reply: Bool)
         case command(AppPlatformClient.Command)
+        case recoveryKitDestinationChosen(URL?)
     }
 
     @Dependency(\.gameEngine) var engine
@@ -177,6 +178,10 @@ struct GameModeFeature {
                     }
                     switch response {
                     case .failed(let message, let snapshot):
+                        if request.operation.isReadOnly {
+                            state.settings.recoveryToolError = message
+                            break
+                        }
                         state.mouse = snapshot
                         state.pendingOperations = []
                         if state.session.phase != .terminating {
@@ -184,6 +189,24 @@ struct GameModeFeature {
                             state.session.desiredMode = state.session.appliedMode
                         }
                     case .completed(let snapshot):
+                        if request.operation == .inspectRecovery {
+                            state.settings.recoveryDocument = snapshot.recoveryBackup
+                        }
+                        if case .exportRecoveryKit(let url) = request.operation {
+                            state.settings.recoveryKitPath = url.path
+                            state.settings.recoveryToolError = nil
+                            state.settings.recoveryNotice = "Recovery file and standalone app exported."
+                        }
+                        if case .restoreBackup = request.operation {
+                            state.settings.importedRecovery = nil
+                            state.settings.importedRecoveryName = nil
+                            state.settings.recoveryNotice = "Saved settings restored."
+                            effects.append(.send(.settings(.recoveryPageOpened)))
+                        }
+                        if request.operation == .recover, state.settings.recoveryPageIsPresented {
+                            state.settings.recoveryNotice = "Settings restored."
+                            effects.append(.send(.settings(.recoveryPageOpened)))
+                        }
                         state.mouse = snapshot
                         if request.operation == .reset {
                             effects.append(.send(.settings(.resetAfterRecovery)))
@@ -192,6 +215,10 @@ struct GameModeFeature {
                             state.session.phase = .ready
                             state.session.appliedMode = false
                             state.session.desiredMode = false
+                            if request.operation == .accept, state.settings.config.system.repairLegacyFunctionKeyOverride {
+                                // Explicitly accepting today's settings must also stop the optional cleanup policy.
+                                effects.append(.send(.settings(.binding(.set(\.config.system.repairLegacyFunctionKeyOverride, false)))))
+                            }
                             if state.settings.configurationLoadError == nil {
                                 let activate = state.needsInitialAppScan && (request.operation == .startup || request.operation == .recover)
                                 state.needsInitialAppScan = false
@@ -215,19 +242,24 @@ struct GameModeFeature {
                     if case .applyMouse = action { enabled = true } else { enabled = !state.mouse.mouseIsApplied }
                     if state.settings.isPreview { state.mouse.mouseIsApplied = enabled }
                     else { enqueue(.mouse(enabled), state: &state) }
-                case .retryRecovery, .acceptCurrentSettings, .resetConfiguration:
+                case .retryRecovery, .acceptCurrentSettings, .resetConfiguration, .settings(.restoreNormalSettings), .settings(.removeFunctionKeyOverride):
                     guard !state.session.isBusy else { break }
+                    if case .settings(.removeFunctionKeyOverride) = action, state.session.appliedMode { break }
                     if case .acceptCurrentSettings = action, !state.settings.canAcceptCurrentSettings { break }
                     if case .resetConfiguration = action, !state.settings.canResetConfiguration { break }
                     let operation: GameEngineClient.Operation
                     switch action {
                     case .acceptCurrentSettings: operation = .accept
                     case .resetConfiguration: operation = .reset
+                    case .settings(.restoreNormalSettings): operation = .restoreNormalSettings
+                    case .settings(.removeFunctionKeyOverride(let expected)):
+                        operation = .removeFunctionKeyOverride(expected)
                     default: operation = .recover
                     }
                     state.pendingOperations = []
                     state.session.phase = .recovering
                     state.session.desiredMode = false
+                    state.settings.recoveryToolError = nil
                     if state.settings.isPreview {
                         if operation == .reset { effects.append(.send(.settings(.resetAfterRecovery))) }
                         state.mouse = .init()
@@ -236,7 +268,12 @@ struct GameModeFeature {
                         state.session.desiredMode = false
                     } else { effects.append(begin(operation, state: &state)) }
                 case .settingsRequested, .reviewRecovery:
-                    if case .reviewRecovery = action { effects.append(.send(.settings(.sectionSelected(.system)))) }
+                    if case .reviewRecovery = action {
+                        effects.append(.run { send in
+                            await send(.settings(.sectionSelected(.system)))
+                            await send(.settings(.recoveryPageOpened))
+                        })
+                    }
                     state.settingsIsVisible = true
                     effects.append(command(.showSettings))
                     if !state.settings.isPreview {
@@ -266,7 +303,7 @@ struct GameModeFeature {
                     effects.append(.send(.settings(.stopRecording)))
                     effects.append(.cancel(id: CancelID.permissions))
                     effects.append(.cancel(id: CancelID.events))
-                    if !state.settings.isPreview, state.settings.config.system.restoreOnShutdown {
+                    if !state.settings.isPreview {
                         if state.operation?.operation != .terminate { effects.append(begin(.terminate, state: &state)) }
                     } else if state.shouldReplyToTermination {
                         state.shouldReplyToTermination = false
@@ -281,6 +318,30 @@ struct GameModeFeature {
                         state.needsInitialAppScan = false
                         effects.append(.run { send in await send(.runningAppsLoaded(platform.runningBundleIDs(), activate: false)) })
                     }
+                case .settings(.exportRecoveryKit):
+                    guard !state.session.isBusy else { break }
+                    effects.append(.run { send in await send(.recoveryKitDestinationChosen(settingsView.chooseRecoveryKitDestination())) })
+                case .settings(.recoveryPageOpened):
+                    guard !state.session.isBusy else { break }
+                    state.settings.recoveryToolError = nil
+                    if !state.settings.isPreview { effects.append(begin(.inspectRecovery, state: &state)) }
+                case .settings(.restoreRecoveryFile):
+                    guard !state.session.isBusy, let backup = state.settings.importedRecovery, !state.settings.selectedRecoverySettings.isEmpty else { break }
+                    state.pendingOperations = []
+                    state.session.phase = .recovering
+                    state.session.desiredMode = false
+                    state.settings.recoveryToolError = nil
+                    if state.settings.isPreview {
+                        state.session.phase = .ready
+                        state.session.appliedMode = false
+                        state.settings.importedRecovery = nil
+                    } else {
+                        effects.append(begin(.restoreBackup(backup, state.settings.selectedRecoverySettings), state: &state))
+                    }
+                case .recoveryKitDestinationChosen(let destination):
+                    guard let destination, !state.session.isBusy else { break }
+                    state.settings.recoveryToolError = nil
+                    effects.append(begin(.exportRecoveryKit(destination), state: &state))
                 case .settings(.command(let value)): effects.append(.send(.command(value)))
                 case .settings(.applyMouse): effects.append(.send(.applyMouse))
                 case .settings(.retryRecovery): effects.append(.send(.retryRecovery))
@@ -297,6 +358,10 @@ struct GameModeFeature {
             let config = state.settings.config
             platform.configureLogging(config)
             if !state.settings.isPreview, state.started {
+                if !previousConfig.system.repairLegacyFunctionKeyOverride, config.system.repairLegacyFunctionKeyOverride,
+                   !state.session.appliedMode, !state.session.desiredMode, !state.session.isBusy {
+                    effects.append(.send(.retryRecovery))
+                }
                 if previousConfig.receivesBetaUpdates != config.receivesBetaUpdates { effects.append(.run { _ in await platform.command(.resetUpdateCycle) }) }
                 if previousConfig.hotkeys != config.hotkeys, state.settings.recordingHotkeyID == nil {
                     effects.append(.run { _ in await platform.configureHotkeys(config.hotkeys) })

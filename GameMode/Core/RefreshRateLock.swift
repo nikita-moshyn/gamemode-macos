@@ -268,6 +268,10 @@ final class RefreshRateLock {
     }
 
     /// Retain unavailable displays so a later retry can use their original modes.
+    func captureRecoverySettings() -> [DisplayRecoveryRecord] {
+        performOnMain { Self.resolvedDisplays().compactMap { self.recoveryRecord(for: $0) } }
+    }
+
     func restorePersistedDisplayModes(_ records: [DisplayRecoveryRecord]) -> [String] {
         performOnMain {
             var conflicts: [String] = []
