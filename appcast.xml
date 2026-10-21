@@ -1,8 +1,16 @@
-<?xml version="1.0" encoding="utf-8"?>
-<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
+<?xml version='1.0' encoding='utf-8'?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
     <channel>
         <title>GameMode Changelog</title>
         <description>Most recent changes with links to updates.</description>
         <language>en</language>
+        <item>
+            <title>GameMode 0.2.0</title>
+            <sparkle:version>0.2.0</sparkle:version>
+            <sparkle:shortVersionString>0.2.0</sparkle:shortVersionString>
+            <pubDate>Wed, 21 Oct 2026 13:53:36 +0000</pubDate>
+            <enclosure url="https://github.com/nikita-moshyn/gamemode-macos/releases/download/v0.2.0/GameMode-0.2.0.zip" length="12485042" type="application/octet-stream" sparkle:edSignature="kgu98UCit0djlOpw4h7YW3xLsgq0n2v6eszslefQRxDi7MKoxrVIxw+GiU/WruHgyUx/vSCm/mxNfBZ0rlI7Dg==" />
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+        </item>
     </channel>
 </rss>
